@@ -1,8 +1,45 @@
 const IS_GITHUB_PAGES = window.location.hostname.includes('github.io') || window.location.protocol === 'file:';
 
-const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? `http://localhost:3000/api`
-  : (IS_GITHUB_PAGES ? '' : '/api');
+/**
+ * Get active Backend API Base URL.
+ * Priority:
+ * 1. User configured custom backend URL (localStorage: 'janseva_backend_url')
+ * 2. Localhost dev server (http://localhost:3000/api)
+ * 3. Relative '/api' (if hosted on full server or reverse proxy)
+ * 4. null (if static GitHub Pages with no backend linked yet)
+ */
+function getApiBase() {
+  const custom = localStorage.getItem('janseva_backend_url');
+  if (custom && custom.trim()) {
+    const clean = custom.trim().replace(/\/+$/, '');
+    return clean.endsWith('/api') ? clean : `${clean}/api`;
+  }
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return `http://localhost:3000/api`;
+  }
+  if (IS_GITHUB_PAGES) {
+    return null;
+  }
+  return '/api';
+}
+
+function getBackendUrl() {
+  return localStorage.getItem('janseva_backend_url') || (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'http://localhost:3000' : '');
+}
+
+function setBackendUrl(url) {
+  if (!url || !url.trim()) {
+    localStorage.removeItem('janseva_backend_url');
+  } else {
+    let clean = url.trim().replace(/\/+$/, '');
+    if (clean.endsWith('/api')) clean = clean.slice(0, -4);
+    localStorage.setItem('janseva_backend_url', clean);
+  }
+}
+
+function isLiveBackend() {
+  return !!getApiBase();
+}
 
 const DEFAULT_TIMEOUT_MS = 60000;
 
@@ -15,12 +52,12 @@ CORE RULES:
 3. For schemes: list (1) Key Benefit/Amount, (2) Who is eligible, (3) Official portal/where to apply.`;
 
 /**
- * Get or prompt user for Gemini API Key on GitHub Pages (stored in local browser only).
+ * Get or prompt user for Gemini API Key on GitHub Pages / Netlify (stored in local browser only).
  */
 function getClientApiKey() {
   let key = localStorage.getItem('janseva_gemini_api_key');
   if (!key) {
-    key = window.prompt('🔑 JANSEVA.AI (GitHub Pages)\n\nPlease enter your Google Gemini API Key:\n(Saved safely in your browser LocalStorage only)');
+    key = window.prompt('🔑 JANSEVA.AI (Netlify / GitHub Pages)\n\nPlease enter your Google Gemini API Key:\n(Saved safely in your browser LocalStorage only)');
     if (key && key.trim()) {
       key = key.trim();
       localStorage.setItem('janseva_gemini_api_key', key);
@@ -77,15 +114,16 @@ async function directGeminiChat(message, language = 'auto', conversationId = nul
  * Core fetch wrapper with timeout and error normalization.
  */
 async function apiFetch(endpoint, options = {}) {
-  if (IS_GITHUB_PAGES) {
-    throw new Error('GITHUB_PAGES_MODE');
+  const base = getApiBase();
+  if (!base) {
+    throw new Error('NO_BACKEND_SERVER');
   }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${API_BASE}${endpoint}`, {
+    const response = await fetch(`${base}${endpoint}`, {
       headers: {
         'Content-Type': 'application/json',
         ...options.headers,
@@ -146,8 +184,8 @@ async function sendMessage(message, language = 'auto', conversationId = null) {
       body: JSON.stringify({ message, language, conversationId }),
     });
   } catch (err) {
-    // If running statically on GitHub Pages or backend is unreachable, fallback to direct Gemini
-    if (IS_GITHUB_PAGES || err.code === 'NETWORK_ERROR') {
+    // If running statically on GitHub Pages with no backend or backend is unreachable, fallback to direct Gemini
+    if (IS_GITHUB_PAGES || err.code === 'NETWORK_ERROR' || err.message === 'NO_BACKEND_SERVER') {
       return directGeminiChat(message, language, conversationId);
     }
     throw err;
@@ -196,8 +234,9 @@ async function setLanguage(conversationId, language) {
  * Health check.
  */
 async function healthCheck() {
-  if (IS_GITHUB_PAGES) {
-    return { status: 'healthy', gemini: { ok: true, mode: 'github_pages' } };
+  const base = getApiBase();
+  if (!base) {
+    return { status: 'healthy', gemini: { ok: true, mode: 'github_pages_standalone' } };
   }
   try {
     return await apiFetch('/health');
@@ -210,84 +249,75 @@ async function healthCheck() {
  * List registered ESP32 hardware devices.
  */
 async function listDevices() {
-  if (IS_GITHUB_PAGES) {
-    const list = JSON.parse(localStorage.getItem('janseva_devices') || '[]');
-    return { success: true, count: list.length, devices: list };
+  const base = getApiBase();
+  if (base) {
+    try {
+      const res = await apiFetch('/device/list');
+      if (res && res.devices) return res;
+    } catch (e) {
+      console.warn('Backend /device/list unreachable, falling back to local cache:', e.message);
+    }
   }
-  try {
-    return await apiFetch('/device/list');
-  } catch (e) {
-    const list = JSON.parse(localStorage.getItem('janseva_devices') || '[]');
-    return { success: true, count: list.length, devices: list };
-  }
+  const list = JSON.parse(localStorage.getItem('janseva_devices') || '[]');
+  return { success: true, count: list.length, devices: list, isMock: !base };
 }
 
 /**
  * Register a new hardware device.
  */
 async function registerDevice(name, location) {
-  if (IS_GITHUB_PAGES) {
-    const list = JSON.parse(localStorage.getItem('janseva_devices') || '[]');
-    const newDev = {
-      id: 'JANSEVA-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
-      name: name || 'ESP32 Node',
-      location: location || 'Main Counter',
-      status: 'online',
-      registeredAt: new Date().toISOString(),
-    };
-    list.push(newDev);
-    localStorage.setItem('janseva_devices', JSON.stringify(list));
-    return { success: true, device: newDev };
+  const base = getApiBase();
+  if (base) {
+    try {
+      return await apiFetch('/device/register', {
+        method: 'POST',
+        body: JSON.stringify({ name, location }),
+      });
+    } catch (e) {
+      console.warn('Backend register failed, saving locally:', e.message);
+    }
   }
-  try {
-    return await apiFetch('/device/register', {
-      method: 'POST',
-      body: JSON.stringify({ name, location }),
-    });
-  } catch (e) {
-    const list = JSON.parse(localStorage.getItem('janseva_devices') || '[]');
-    const newDev = {
-      id: 'JANSEVA-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
-      name: name || 'ESP32 Node',
-      location: location || 'Main Counter',
-      status: 'online',
-      registeredAt: new Date().toISOString(),
-    };
-    list.push(newDev);
-    localStorage.setItem('janseva_devices', JSON.stringify(list));
-    return { success: true, device: newDev };
-  }
+  const list = JSON.parse(localStorage.getItem('janseva_devices') || '[]');
+  const newDev = {
+    id: 'JANSEVA-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
+    name: name || 'ESP32 Node',
+    location: location || 'Main Counter',
+    status: 'online',
+    registeredAt: new Date().toISOString(),
+  };
+  list.push(newDev);
+  localStorage.setItem('janseva_devices', JSON.stringify(list));
+  return { success: true, device: newDev };
 }
 
 /**
  * Delete a hardware device.
  */
 async function deleteDevice(deviceId) {
-  if (IS_GITHUB_PAGES) {
-    let list = JSON.parse(localStorage.getItem('janseva_devices') || '[]');
-    list = list.filter(d => d.id !== deviceId);
-    localStorage.setItem('janseva_devices', JSON.stringify(list));
-    return { success: true };
+  const base = getApiBase();
+  if (base) {
+    try {
+      return await apiFetch(`/device/${deviceId}`, { method: 'DELETE' });
+    } catch (e) {
+      console.warn('Backend delete failed, removing locally:', e.message);
+    }
   }
-  try {
-    return await apiFetch(`/device/${deviceId}`, { method: 'DELETE' });
-  } catch (e) {
-    let list = JSON.parse(localStorage.getItem('janseva_devices') || '[]');
-    list = list.filter(d => d.id !== deviceId);
-    localStorage.setItem('janseva_devices', JSON.stringify(list));
-    return { success: true };
-  }
+  let list = JSON.parse(localStorage.getItem('janseva_devices') || '[]');
+  list = list.filter(d => d.id !== deviceId);
+  localStorage.setItem('janseva_devices', JSON.stringify(list));
+  return { success: true };
 }
 
 /**
  * Get TTS Audio URL.
+ * Returns Neural Audio URL if live backend is connected, otherwise returns null for Web Speech fallback.
  */
 function getTTSUrl(text, lang = 'hi') {
-  if (IS_GITHUB_PAGES || !API_BASE) {
-    const clean = text.replace(/[*_#`~[\]()]/g, '').replace(/\s+/g, ' ').slice(0, 200);
-    return `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(clean)}&tl=${lang || 'hi'}&client=tw-ob`;
+  const base = getApiBase();
+  if (base) {
+    return `${base}/device/tts?format=mp3&rate=%2B15%25&text=${encodeURIComponent(text.slice(0, 300))}&lang=${lang}`;
   }
-  return `${API_BASE}/device/tts?text=${encodeURIComponent(text.slice(0, 300))}&lang=${lang}`;
+  return null;
 }
 
 export default {
@@ -302,4 +332,8 @@ export default {
   registerDevice,
   deleteDevice,
   getTTSUrl,
+  getBackendUrl,
+  setBackendUrl,
+  isLiveBackend,
+  getApiBase,
 };

@@ -1,39 +1,51 @@
 /**
  * ============================================================================
- * 🇮🇳 JANSEVA.AI — ESP32 Smart Citizen Kiosk Firmware
+ * JANSEVA.AI -- ESP32 Smart Citizen Kiosk Firmware v2.0
  * ============================================================================
- * 
+ *
+ * CONVERSATION FLOW:
+ *   1. Touch sensor (single touch) -> Wake up + Greeting
+ *   2. Language selection (say Hindi, English, Marathi, etc.)
+ *   3. Ask for user Name -> Voice reply
+ *   4. Ask for user Phone Number -> Voice reply
+ *   5. Ask for the Problem -> Voice reply
+ *   6. AI processes -> Speaks Solution
+ *   7. Ask to Repeat solution -> Touch or Voice (yes/haan)
+ *   8. Ask if more help needed -> Loop back or say Goodbye
+ *
+ * WiFi SETUP (First Boot or Reset):
+ *   1. ESP32 creates AP named JANSEVA_SETUP
+ *   2. Connect phone/laptop to that WiFi (no password)
+ *   3. Open browser -> 192.168.4.1 (auto captive portal)
+ *   4. Fill: Home WiFi SSID + Password + Server URL +
+ *            Device ID + Location + Default Language
+ *   5. Save -> ESP32 restarts and connects to home WiFi
+ *
+ * RESET WiFi: Hold touch sensor for 5 seconds
+ *
  * Hardware Connections:
- * 
- * 1. PAM8403 Audio Amplifier + Speaker:
- *    - PAM8403 VCC     -> ESP32 VIN / 5V
- *    - PAM8403 GND     -> ESP32 GND
- *    - PAM8403 Audio IN-> ESP32 GPIO 25 (Internal DAC1 / Audio Output)
- *    - PAM8403 OUT+    -> Speaker (+)
- *    - PAM8403 OUT-    -> Speaker (-)
- * 
- * 2. 0.96" OLED Display (SSD1306 128x64 I2C):
- *    - OLED VCC        -> ESP32 3.3V
- *    - OLED GND        -> ESP32 GND
- *    - OLED SCL        -> ESP32 GPIO 22
- *    - OLED SDA        -> ESP32 GPIO 21
- * 
- * 3. TTP223 Capacitive Touch Sensor:
- *    - TTP223 VCC      -> ESP32 3.3V
- *    - TTP223 GND      -> ESP32 GND
- *    - TTP223 SIG      -> ESP32 GPIO 33 (Push-to-Talk / Hold 5s for WiFi reset)
- * 
- * 4. INMP441 I2S Digital Microphone:
- *    - INMP441 VDD     -> ESP32 3.3V
- *    - INMP441 GND     -> ESP32 GND
- *    - INMP441 SD      -> ESP32 GPIO 32 (I2S Data In)
- *    - INMP441 WS      -> ESP32 GPIO 15 (I2S Word Select / L/R Clock)
- *    - INMP441 SCK     -> ESP32 GPIO 14 (I2S Serial Clock / BCLK)
- *    - INMP441 L/R     -> ESP32 GND    (Left Channel)
- * 
- * Required Arduino Libraries (Install via Library Manager):
- * - Adafruit SSD1306 & Adafruit GFX Library
- * - ArduinoJson (v6 or v7)
+ *   PAM8403 VCC     -> ESP32 VIN/5V
+ *   PAM8403 GND     -> GND
+ *   PAM8403 Audio IN-> GPIO 25 (DAC1)
+ *   PAM8403 OUT+/-  -> Speaker +/-
+ *   OLED VCC        -> 3.3V
+ *   OLED GND        -> GND
+ *   OLED SCL        -> GPIO 22
+ *   OLED SDA        -> GPIO 21
+ *   TTP223 VCC      -> 3.3V
+ *   TTP223 GND      -> GND
+ *   TTP223 SIG      -> GPIO 33
+ *   INMP441 VDD     -> 3.3V
+ *   INMP441 GND     -> GND
+ *   INMP441 SD      -> GPIO 32
+ *   INMP441 WS      -> GPIO 15
+ *   INMP441 SCK     -> GPIO 14
+ *   INMP441 L/R     -> GND
+ *
+ * Required Libraries (Arduino Library Manager):
+ *   Adafruit SH110X  (for 1" SH1106 OLED  -- PRIMARY)
+ *   Adafruit SSD1306 (for 0.96" OLED only -- set USE_SH1106 = 0)
+ *   Adafruit GFX, ArduinoJson (v6+)
  * ============================================================================
  */
 
@@ -44,418 +56,1308 @@
 #include <HTTPClient.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 #include <driver/i2s.h>
-#include <driver/dac.h>
 #include <ArduinoJson.h>
 
-// ── PIN DEFINITIONS ─────────────────────────────────────────────────────────
-#define PIN_OLED_SDA      21
-#define PIN_OLED_SCL      22
-#define PIN_TOUCH_SIG     33
-#define PIN_MIC_I2S_SD    32
-#define PIN_MIC_I2S_WS    15
-#define PIN_MIC_I2S_SCK   14
-#define PIN_AUDIO_DAC_OUT 25 // PAM8403 Audio IN
+// ============================================================================
+// PIN DEFINITIONS
+// ============================================================================
+#define PIN_BOOT_BTN    0    // Physical BOOT button on ESP32 board (hold 3s = Factory Reset)
+#define PIN_TOUCH_SIG   33   // TTP223 capacitive touch sensor
+#define PIN_MIC_SD      32   // INMP441 Serial Data
+#define PIN_MIC_WS      15   // INMP441 Word Select (L/R clock)
+#define PIN_MIC_SCK     14   // INMP441 Serial Bit Clock
+#define PIN_AUDIO_DAC   25   // DAC1 output to PAM8403 amplifier
+#define PIN_OLED_SDA    21   // I2C SDA for OLED
+#define PIN_OLED_SCL    22   // I2C SCL for OLED
 
-// ── OLED CONFIG ─────────────────────────────────────────────────────────────
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-#define OLED_RESET -1
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+// ============================================================================
+// OLED DISPLAY CONFIGURATION
+// ============================================================================
+// USE_SH1106 = 1  -> 1" or 1.3" displays (SH1106 chip) -- DEFAULT for this build
+// USE_SH1106 = 0  -> 0.96" displays    (SSD1306 chip)
+// Install "Adafruit SH110X" library when USE_SH1106 = 1
+#define USE_SH1106 1
 
-// ── AUDIO & RECORDING CONFIG ────────────────────────────────────────────────
-#define I2S_PORT_MIC      I2S_NUM_0
-#define SAMPLE_RATE       16000
-#define BITS_PER_SAMPLE   16
-#define MAX_RECORD_SECS   6
-#define BUFFER_SIZE       (SAMPLE_RATE * 2 * MAX_RECORD_SECS) // ~192 KB RAM
+#define SCREEN_W 128
+#define SCREEN_H 64
 
-uint8_t* audioBuffer = nullptr;
-size_t recordedBytes = 0;
+#if USE_SH1106
+  #include <Adafruit_SH110X.h>
+  Adafruit_SH1106G oled(SCREEN_W, SCREEN_H, &Wire, -1);
+  #define OLED_WHITE SH110X_WHITE
+  #define OLED_BLACK 0
+#else
+  #include <Adafruit_SSD1306.h>
+  Adafruit_SSD1306 oled(SCREEN_W, SCREEN_H, &Wire, -1);
+  #define OLED_WHITE SSD1306_WHITE
+  #define OLED_BLACK SSD1306_BLACK
+#endif
 
-// ── PREFERENCES & CONFIG ────────────────────────────────────────────────────
+// Robot face state enum
+enum FaceState {
+  FACE_IDLE    = 0,   // Neutral, blinking
+  FACE_GREET   = 1,   // Big smile + wave
+  FACE_LISTEN  = 2,   // Big eyes + mic symbol
+  FACE_THINK   = 3,   // Eyes up, animated dots
+  FACE_SPEAK   = 4,   // Animated mouth open/close
+  FACE_HAPPY   = 5,   // Happy eyes + smile
+  FACE_SETUP   = 6,   // WiFi/config screen
+  FACE_BYE     = 7    // Waving goodbye
+};
+
+uint32_t faceFrame = 0;  // incremented each draw call for animation
+
+// ============================================================================
+// AUDIO CONFIG
+// ============================================================================
+#define I2S_MIC_PORT    I2S_NUM_0
+#define SAMPLE_RATE     16000
+#define MAX_REC_SECS    7
+#define WAV_HDR_SZ      44
+#define AUDIO_BUF_SZ    (SAMPLE_RATE * 2 * MAX_REC_SECS + WAV_HDR_SZ)
+
+uint8_t* audioBuf = nullptr;
+size_t   recBytes = 0;
+
+// ============================================================================
+// PERSISTENT SETTINGS (saved to flash)
+// ============================================================================
 Preferences prefs;
-String wifi_ssid     = "";
-String wifi_password = "";
-String server_url    = "http://192.168.1.100:3000";
-String device_id     = "JANSEVA-ESP32";
+String cfg_ssid     = "";
+String cfg_pass     = "";
+String cfg_server   = "http://10.111.125.210:3000";
+String cfg_devid    = "JANSEVA-ESP32";
+String cfg_location = "Main Counter";
+String cfg_lang     = "hi";
 
-// ── CAPTIVE PORTAL CONFIG ───────────────────────────────────────────────────
-const char* AP_SSID = "JANSEVA_SETUP_AP";
-const byte DNS_PORT = 53;
-DNSServer dnsServer;
-WebServer server(80);
-bool inConfigPortal = false;
+// ============================================================================
+// CAPTIVE PORTAL
+// ============================================================================
+const char* AP_NAME = "JANSEVA_SETUP";
+DNSServer   dnsServer;
+WebServer   portalServer(80);
+bool        portalActive = false;
 
-// ── STATE ───────────────────────────────────────────────────────────────────
+// ============================================================================
+// CONVERSATION STATE MACHINE
+// ============================================================================
+enum ConvStep {
+  STEP_IDLE = 0,
+  STEP_GREET,
+  STEP_LANG_CHOICE,
+  STEP_ASK_NAME,
+  STEP_GET_NAME,
+  STEP_ASK_PHONE,
+  STEP_GET_PHONE,
+  STEP_ASK_PROBLEM,
+  STEP_GET_PROBLEM,
+  STEP_THINKING,
+  STEP_SPEAK_SOLUTION,
+  STEP_ASK_REPEAT,
+  STEP_ASK_MORE
+};
+
+ConvStep convStep     = STEP_IDLE;
+String   userName     = "";
+String   userPhone    = "";
+String   userProblem  = "";
+String   lastSolution = "";
+String   activeLang   = "hi";
+String   convId       = "";
+
 unsigned long lastHeartbeat = 0;
-const unsigned long HEARTBEAT_INTERVAL = 30000; // 30s
+#define HEARTBEAT_MS 30000
 
-// ── FORWARD DECLARATIONS ────────────────────────────────────────────────────
-void showOLED(const String& line1, const String& line2 = "", const String& line3 = "", const String& line4 = "");
-void startCaptivePortal();
-void handleRoot();
-void handleSave();
-void initI2SMicrophone();
-void recordVoice();
-void sendAudioToServer();
-void playDACAudio(const uint8_t* data, size_t len);
+// ============================================================================
+// FORWARD DECLARATIONS
+// ============================================================================
+void drawRobotFace(FaceState state, String label);
+void showOLED(String l1, String l2, String l3, String l4);  // legacy wrapper
+void startPortal();
+void handlePortalRoot();
+void handlePortalSave();
+void handlePortalRedirect();
+void initMicrophone();
+bool recordVoice(int maxSecs);
+String sendAudioForSTT();
+String sendChatMessage(String message, String ctx);
+void speakText(String text, String lang);
+void playDAC(const uint8_t* data, size_t len);
 void sendHeartbeat();
+void runConversationStep(String voiceInput);
+void resetConversation();
+bool containsAny(String haystack, const char* needles[], int count);
 
-// ── SETUP ───────────────────────────────────────────────────────────────────
+// ============================================================================
+// SETUP
+// ============================================================================
 void setup() {
   Serial.begin(115200);
   delay(500);
-  Serial.println("\n\n==========================================");
-  Serial.println("🇮🇳 JANSEVA.AI — ESP32 Smart Kiosk Node");
-  Serial.println("==========================================");
+  Serial.println("=== JANSEVA.AI ESP32 Kiosk v2.0 ===");
 
-  // Initialize GPIOs
-  pinMode(PIN_TOUCH_SIG, INPUT);
-  dac_output_enable(DAC_CHANNEL_1); // GPIO 25
+  pinMode(PIN_TOUCH_SIG, INPUT_PULLDOWN);
+  pinMode(PIN_BOOT_BTN,  INPUT_PULLUP);
 
-  // Initialize I2C OLED
+  // Initialize I2C Bus & OLED Display
   Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL);
-  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println("⚠️ OLED display not found on 0x3C");
+  Wire.setTimeOut(100);
+  delay(150);
+
+  // Auto-scan I2C for display address (0x3C vs 0x3D)
+  uint8_t oledAddr = 0x3C;
+  bool oledFound = false;
+
+  Wire.beginTransmission(0x3C);
+  if (Wire.endTransmission() == 0) {
+    oledAddr = 0x3C;
+    oledFound = true;
+    Serial.println("[OLED] Found I2C display at 0x3C");
   } else {
-    display.clearDisplay();
-    display.setTextColor(SSD1306_WHITE);
-    showOLED("JANSEVA.AI", "Citizen Assistant", "Initializing...", "Please wait");
+    Wire.beginTransmission(0x3D);
+    if (Wire.endTransmission() == 0) {
+      oledAddr = 0x3D;
+      oledFound = true;
+      Serial.println("[OLED] Found I2C display at 0x3D");
+    }
   }
 
-  // Load preferences from flash
+  if (!oledFound) {
+    Serial.println("[OLED] WARNING: No I2C display detected at 0x3C or 0x3D!");
+    Serial.println("[OLED] 1. Check wiring: SDA->GPIO 21, SCL->GPIO 22");
+    Serial.println("[OLED] 2. Try powering OLED from VIN/5V instead of 3.3V");
+  }
+
+#if USE_SH1106
+  if (!oled.begin(oledAddr, true)) {
+    Serial.println("[OLED] SH1106 begin failed!");
+  } else {
+    Serial.println("[OLED] SH1106 display ready");
+    oled.clearDisplay();
+    oled.display();
+  }
+#else
+  if (!oled.begin(SSD1306_SWITCHCAPVCC, oledAddr)) {
+    Serial.println("[OLED] SSD1306 begin failed! If screen shows random pixels, set USE_SH1106 to 1");
+  } else {
+    Serial.println("[OLED] SSD1306 display ready");
+    oled.clearDisplay();
+    oled.display();
+  }
+#endif
+
+  // Show happy boot face
+  drawRobotFace(FACE_HAPPY, "Boot");
+  delay(500);
+
+  // Play startup test chime through speaker (verifies PAM8403 & speaker immediately)
+  Serial.println("[AUDIO] Playing startup test chime...");
+  for (int f = 0; f < 200; f++) {
+    dacWrite(PIN_AUDIO_DAC, (f % 16 < 8) ? 200 : 50);
+    delayMicroseconds(500);
+  }
+  delay(50);
+  for (int f = 0; f < 250; f++) {
+    dacWrite(PIN_AUDIO_DAC, (f % 12 < 6) ? 210 : 45);
+    delayMicroseconds(375);
+  }
+  dacWrite(PIN_AUDIO_DAC, 0);
+  Serial.println("[AUDIO] Startup chime finished");
+
+  // Load saved config from flash
   prefs.begin("janseva", false);
-  wifi_ssid     = prefs.getString("ssid", "");
-  wifi_password = prefs.getString("pass", "");
-  server_url    = prefs.getString("server", "http://192.168.1.100:3000");
-  device_id     = prefs.getString("devid", "JANSEVA-ESP32");
+  cfg_ssid     = prefs.getString("ssid",     "");
+  cfg_pass     = prefs.getString("pass",     "");
+  cfg_server   = prefs.getString("server",   "http://10.111.125.210:3000");
+  cfg_devid    = prefs.getString("devid",    "JANSEVA-ESP32");
+  cfg_location = prefs.getString("location", "Main Counter");
+  cfg_lang     = prefs.getString("deflang",  "hi");
+  activeLang   = cfg_lang;
 
-  // Allocate audio recording buffer
-  audioBuffer = (uint8_t*) ps_malloc(BUFFER_SIZE);
-  if (!audioBuffer) {
-    audioBuffer = (uint8_t*) malloc(BUFFER_SIZE);
-  }
-  if (!audioBuffer) {
-    Serial.println("⚠️ Could not allocate full audio buffer, using 3s buffer");
-    audioBuffer = (uint8_t*) malloc(SAMPLE_RATE * 2 * 3);
-  }
-
-  // Initialize I2S INMP441 Microphone
-  initI2SMicrophone();
-
-  // Check if touch button is held on startup (forces Captive Portal)
-  if (digitalRead(PIN_TOUCH_SIG) == HIGH || wifi_ssid == "") {
-    Serial.println("Starting WiFi Configuration Portal...");
-    startCaptivePortal();
-    return;
+  // Allocate audio buffer (use PSRAM if available)
+  audioBuf = (uint8_t*) ps_malloc(AUDIO_BUF_SZ);
+  if (!audioBuf) audioBuf = (uint8_t*) malloc(AUDIO_BUF_SZ);
+  if (!audioBuf) {
+    Serial.println("[ERR] Audio buf failed, using 3s fallback");
+    audioBuf = (uint8_t*) malloc(SAMPLE_RATE * 2 * 3 + WAV_HDR_SZ);
   }
 
-  // Connect to Home/Office WiFi
-  showOLED("Connecting WiFi...", wifi_ssid, "Server:", server_url);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
+  initMicrophone();
 
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 25) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
+  // -----------------------------------------------------------------------
+  // PORTAL TRIGGER LOGIC (First boot OR forced by BOOT button / Touch)
+  // -----------------------------------------------------------------------
+  bool forcePortal = false;
 
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\n✅ WiFi Connected! IP: " + WiFi.localIP().toString());
-    showOLED("JANSEVA.AI Ready", "IP: " + WiFi.localIP().toString(), "Touch to Speak [🎙️]", "Hold 5s to Reset");
-    sendHeartbeat();
+  if (cfg_ssid == "" || cfg_ssid == "Your Home WiFi") {
+    Serial.println("\n[BOOT] No WiFi saved. Opening setup portal...");
+    forcePortal = true;
   } else {
-    Serial.println("\n❌ WiFi Connection Failed. Starting Setup Portal.");
-    startCaptivePortal();
-  }
-}
+    Serial.println("\n[BOOT] Saved WiFi: " + cfg_ssid);
+    Serial.println("[BOOT] Hold BOOT button, touch sensor, or type 'r' in Serial (3s window) for Setup Portal...");
 
-// ── MAIN LOOP ───────────────────────────────────────────────────────────────
-void loop() {
-  if (inConfigPortal) {
-    dnsServer.processNextRequest();
-    server.handleClient();
-    return;
-  }
+    drawRobotFace(FACE_SETUP, "Setup?");
 
-  // Check for Touch Trigger (TTP223 SIG)
-  if (digitalRead(PIN_TOUCH_SIG) == HIGH) {
-    unsigned long touchStart = millis();
-    showOLED("Listening... [🔴]", "Speak your question", "Keep touching...", "");
-
-    // Check for long press (5 seconds) -> Reset WiFi
-    while (digitalRead(PIN_TOUCH_SIG) == HIGH) {
-      if (millis() - touchStart > 5000) {
-        showOLED("RESETTING WIFI...", "Release touch", "Opening portal", "");
-        while (digitalRead(PIN_TOUCH_SIG) == HIGH) delay(50);
+    unsigned long promptStart = millis();
+    while (millis() - promptStart < 3000) {
+      if (digitalRead(PIN_BOOT_BTN) == LOW || digitalRead(PIN_TOUCH_SIG) == HIGH || Serial.available() > 0) {
+        while (Serial.available()) Serial.read();
+        Serial.println("[BOOT] Factory Reset triggered! Clearing saved WiFi...");
         prefs.clear();
-        startCaptivePortal();
-        return;
+        cfg_ssid = "";
+        cfg_pass = "";
+        forcePortal = true;
+        break;
       }
       delay(50);
     }
-
-    // Short touch -> Record Voice Query
-    recordVoice();
-    sendAudioToServer();
-
-    showOLED("JANSEVA.AI Ready", "Touch to Speak [🎙️]", "Server: Online", "");
   }
 
-  // Periodic Heartbeat
-  if (millis() - lastHeartbeat > HEARTBEAT_INTERVAL && WiFi.status() == WL_CONNECTED) {
-    lastHeartbeat = millis();
-    sendHeartbeat();
-  }
-}
-
-// ── OLED HELPER ─────────────────────────────────────────────────────────────
-void showOLED(const String& line1, const String& line2, const String& line3, const String& line4) {
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setCursor(0, 0);
-  display.println(line1);
-  display.drawLine(0, 11, 127, 11, SSD1306_WHITE);
-  display.setCursor(0, 16);
-  display.println(line2);
-  display.setCursor(0, 32);
-  display.println(line3);
-  display.setCursor(0, 48);
-  display.println(line4);
-  display.display();
-}
-
-// ── I2S MICROPHONE INIT (INMP441) ───────────────────────────────────────────
-void initI2SMicrophone() {
-  i2s_config_t i2s_config = {
-    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
-    .sample_rate = SAMPLE_RATE,
-    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
-    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
-    .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-    .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-    .dma_buf_count = 4,
-    .dma_buf_len = 512,
-    .use_apll = false,
-    .tx_desc_auto_clear = false,
-    .fixed_mclk = 0
-  };
-
-  i2s_pin_config_t pin_config = {
-    .bck_io_num = PIN_MIC_I2S_SCK,
-    .ws_io_num = PIN_MIC_I2S_WS,
-    .data_out_num = I2S_PIN_NO_CHANGE,
-    .data_in_num = PIN_MIC_I2S_SD
-  };
-
-  i2s_driver_install(I2S_PORT_MIC, &i2s_config, 0, NULL);
-  i2s_set_pin(I2S_PORT_MIC, &pin_config);
-  i2s_zero_dma_buffer(I2S_PORT_MIC);
-}
-
-// ── RECORD VOICE FROM INMP441 ───────────────────────────────────────────────
-void recordVoice() {
-  if (!audioBuffer) return;
-  recordedBytes = 0;
-  size_t bytesRead = 0;
-  unsigned long start = millis();
-
-  showOLED("Recording Audio...", "Listening...", "Max 5 seconds", "");
-
-  // Record for up to 5 seconds
-  while (recordedBytes < (BUFFER_SIZE - 44) && (millis() - start < 5000)) {
-    uint8_t tempBuf[512];
-    i2s_read(I2S_PORT_MIC, tempBuf, sizeof(tempBuf), &bytesRead, portMAX_DELAY);
-    if (bytesRead > 0) {
-      memcpy(audioBuffer + 44 + recordedBytes, tempBuf, bytesRead);
-      recordedBytes += bytesRead;
-    }
-  }
-
-  // Generate 44-byte WAV header at the beginning of audioBuffer
-  uint32_t sampleRate = SAMPLE_RATE;
-  uint16_t numChannels = 1;
-  uint16_t bitsPerSample = 16;
-  uint32_t byteRate = sampleRate * numChannels * (bitsPerSample / 8);
-  uint32_t dataSize = recordedBytes;
-  uint32_t chunkSize = 36 + dataSize;
-
-  // RIFF Chunk
-  memcpy(audioBuffer, "RIFF", 4);
-  memcpy(audioBuffer + 4, &chunkSize, 4);
-  memcpy(audioBuffer + 8, "WAVE", 4);
-
-  // fmt subchunk
-  memcpy(audioBuffer + 12, "fmt ", 4);
-  uint32_t subchunk1Size = 16;
-  uint16_t audioFormat = 1; // PCM
-  memcpy(audioBuffer + 16, &subchunk1Size, 4);
-  memcpy(audioBuffer + 20, &audioFormat, 2);
-  memcpy(audioBuffer + 22, &numChannels, 2);
-  memcpy(audioBuffer + 24, &sampleRate, 4);
-  memcpy(audioBuffer + 28, &byteRate, 4);
-  uint16_t blockAlign = numChannels * (bitsPerSample / 8);
-  memcpy(audioBuffer + 32, &blockAlign, 2);
-  memcpy(audioBuffer + 34, &bitsPerSample, 2);
-
-  // data subchunk
-  memcpy(audioBuffer + 36, "data", 4);
-  memcpy(audioBuffer + 40, &dataSize, 4);
-
-  recordedBytes += 44; // Total WAV size
-  Serial.printf("Recorded %d bytes of WAV audio\n", recordedBytes);
-}
-
-// ── SEND AUDIO TO JANSEVA SERVER ────────────────────────────────────────────
-void sendAudioToServer() {
-  if (WiFi.status() != WL_CONNECTED || recordedBytes <= 44) {
-    showOLED("Error", "WiFi Disconnected", "or Empty Audio", "");
-    delay(2000);
+  if (forcePortal) {
+    startPortal();
     return;
   }
 
-  showOLED("Contacting AI...", "Analyzing voice", "Please wait...", "");
+  // Connect to saved WiFi
+  showOLED("Connecting...", cfg_ssid, "Please wait", "");
+  WiFi.disconnect(true);
+  delay(100);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(cfg_ssid.c_str(), cfg_pass.c_str());
+  Serial.print("[WiFi] Connecting to: " + cfg_ssid);
+
+  int tries = 0;
+  while (WiFi.status() != WL_CONNECTED && tries < 20) {
+    delay(500);
+    tries++;
+    Serial.print(".");
+    if (tries % 2 == 0) drawRobotFace(FACE_THINK, "WiFi...");
+
+    if (digitalRead(PIN_BOOT_BTN) == LOW || digitalRead(PIN_TOUCH_SIG) == HIGH || Serial.available() > 0) {
+      while (Serial.available()) Serial.read();
+      Serial.println("\n[WiFi] Aborted by user. Opening setup portal...");
+      startPortal();
+      return;
+    }
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    String ip = WiFi.localIP().toString();
+    Serial.println("\n[WiFi] Connected: " + ip);
+    sendHeartbeat();
+
+    // Greet user aloud as soon as device is connected & ready
+    Serial.println("[VOICE] Speaking startup greeting...");
+    drawRobotFace(FACE_GREET, "Namaskar!");
+    speakText("Namaste! Mera naam JanSeva hai. Main aapki kya madad kar sakti hoon?", activeLang);
+
+    drawRobotFace(FACE_IDLE, cfg_location.substring(0, 9));
+  } else {
+    Serial.println("\n[WiFi] Failed. Opening setup portal...");
+    startPortal();
+  }
+}
+
+// ============================================================================
+// LOOP
+// ============================================================================
+void loop() {
+  // Serial command listener (type 'reset' in Serial Monitor at any time to wipe WiFi)
+  if (Serial.available() > 0) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    if (cmd.equalsIgnoreCase("reset") || cmd.equalsIgnoreCase("setup") || cmd.equalsIgnoreCase("portal") || cmd.equalsIgnoreCase("r")) {
+      Serial.println("[CMD] Reset command received! Clearing WiFi and restarting...");
+      prefs.clear();
+      showOLED("WiFi Reset!", "Clearing settings", "Starting portal", "");
+      delay(800);
+      ESP.restart();
+      return;
+    }
+  }
+
+  // Portal mode
+  if (portalActive) {
+    dnsServer.processNextRequest();
+    portalServer.handleClient();
+    return;
+  }
+
+  // Physical BOOT button (GPIO 0) detection:
+  // - Hold for 3s -> Factory Reset (wipes WiFi & restarts)
+  // - Short tap -> Start / trigger conversation
+  if (digitalRead(PIN_BOOT_BTN) == LOW) {
+    unsigned long pressStart = millis();
+    while (digitalRead(PIN_BOOT_BTN) == LOW) {
+      if (millis() - pressStart > 3000) {
+        Serial.println("[BTN] BOOT button held 3s -> FACTORY RESET!");
+        showOLED("Factory Reset!", "Clearing settings", "Restarting...", "");
+        while (digitalRead(PIN_BOOT_BTN) == LOW) delay(50);
+        prefs.clear();
+        delay(500);
+        ESP.restart();
+        return;
+      }
+      delay(30);
+    }
+    // Short tap on BOOT button triggers conversation just like touch sensor!
+    if (convStep == STEP_IDLE) {
+      resetConversation();
+      convStep = STEP_GREET;
+      runConversationStep("");
+      return;
+    }
+  }
+
+  // TTP223 Touch detection
+  if (digitalRead(PIN_TOUCH_SIG) == HIGH) {
+    unsigned long touchStart = millis();
+    while (digitalRead(PIN_TOUCH_SIG) == HIGH) {
+      if (millis() - touchStart > 5000) {
+        // 5s long press -> WiFi reset
+        showOLED("WiFi Reset!", "Clearing settings", "Restarting...", "");
+        while (digitalRead(PIN_TOUCH_SIG) == HIGH) delay(50);
+        prefs.clear();
+        ESP.restart();
+        return;
+      }
+      delay(30);
+    }
+    // Short tap
+    if (convStep == STEP_IDLE) {
+      resetConversation();
+      convStep = STEP_GREET;
+      runConversationStep("");
+    } else if (convStep == STEP_ASK_REPEAT) {
+      speakText(lastSolution, activeLang);
+      convStep = STEP_ASK_MORE;
+      delay(400);
+      runConversationStep("");
+    } else if (convStep == STEP_ASK_MORE) {
+      convStep = STEP_ASK_PROBLEM;
+      runConversationStep("");
+    } else {
+      // Record and process voice for current step
+      bool got = recordVoice(6);
+      if (got) {
+        String text = sendAudioForSTT();
+        if (text.length() > 0) runConversationStep(text);
+        else speakText("Mujhe sunai nahi diya. Kripya dobara boliye.", activeLang);
+      }
+    }
+  }
+
+  // Periodic heartbeat
+  if (WiFi.status() == WL_CONNECTED &&
+      millis() - lastHeartbeat > HEARTBEAT_MS) {
+    lastHeartbeat = millis();
+    sendHeartbeat();
+  }
+
+  // Idle face animation (blink eyes, show ready screen)
+  if (convStep == STEP_IDLE) {
+    drawRobotFace(FACE_IDLE, cfg_location.substring(0, 9));
+    delay(80);  // ~12 fps animation
+  }
+}
+
+// ============================================================================
+// ROBOT FACE DRAWING ENGINE
+// All faces fit the 128x64 OLED. Robot head is on LEFT, label text on RIGHT.
+// ============================================================================
+
+// --- Shared helper: draw robot head outline (left side) ---
+static void _drawHead() {
+  // Head: rounded rect 56x46 at (2,9)
+  oled.drawRoundRect(2, 9, 56, 46, 6, OLED_WHITE);
+  // Antenna on top
+  oled.drawLine(30, 9, 30, 3, OLED_WHITE);
+  oled.fillCircle(30, 2, 2, OLED_WHITE);
+  // Ears (small side tabs)
+  oled.drawRect(0, 22, 2, 8, OLED_WHITE);   // left ear
+  oled.drawRect(58, 22, 2, 8, OLED_WHITE);  // right ear
+}
+
+// --- Draw standard eyes (open) ---
+static void _drawEyesOpen() {
+  oled.fillCircle(18, 27, 7, OLED_WHITE);   // left eye
+  oled.fillCircle(42, 27, 7, OLED_WHITE);   // right eye
+  oled.fillCircle(18, 27, 3, OLED_BLACK);   // left pupil
+  oled.fillCircle(42, 27, 3, OLED_BLACK);   // right pupil
+}
+
+// --- Draw blinking eyes (flat lines) ---
+static void _drawEyesBlink() {
+  oled.drawLine(11, 27, 25, 27, OLED_WHITE);
+  oled.drawLine(35, 27, 49, 27, OLED_WHITE);
+}
+
+// --- Draw happy curved eyes ---
+static void _drawEyesHappy() {
+  // Upward arcs = happy ^^
+  oled.drawCircle(18, 30, 7, OLED_WHITE);
+  oled.fillRect(11, 30, 15, 8, OLED_BLACK); // clip bottom half -> ^^
+  oled.drawCircle(42, 30, 7, OLED_WHITE);
+  oled.fillRect(35, 30, 15, 8, OLED_BLACK);
+}
+
+// --- Draw thinking eyes (looking up-right) ---
+static void _drawEyesThink() {
+  oled.fillCircle(18, 27, 7, OLED_WHITE);
+  oled.fillCircle(42, 27, 7, OLED_WHITE);
+  oled.fillCircle(20, 24, 3, OLED_BLACK);  // pupils look upper-right
+  oled.fillCircle(44, 24, 3, OLED_BLACK);
+}
+
+// --- Straight mouth ---
+static void _mouthNeutral() {
+  oled.drawLine(14, 46, 46, 46, OLED_WHITE);
+}
+
+// --- Smile mouth ---
+static void _mouthSmile() {
+  oled.drawCircle(30, 38, 10, OLED_WHITE);
+  oled.fillRect(20, 28, 20, 10, OLED_BLACK); // clip top -> smile arc
+}
+
+// --- Open mouth (speaking) ---
+static void _mouthOpen(uint8_t openAmt) { // openAmt: 2..8
+  oled.drawRoundRect(18, 43, 24, openAmt, 3, OLED_WHITE);
+  oled.fillRoundRect(19, 44, 22, openAmt-2, 2, OLED_WHITE);
+}
+
+// --- Label text on the right column (x=66..127) ---
+static void _drawLabel(String top, String mid, String bot) {
+  oled.setTextColor(OLED_WHITE);
+  oled.setTextSize(1);
+  oled.setCursor(66, 0);  oled.print(top);
+  oled.setCursor(66, 24); oled.print(mid);
+  oled.setCursor(66, 48); oled.print(bot);
+}
+
+// ----------------------------------------------------------------
+void drawRobotFace(FaceState state, String label) {
+  faceFrame++;
+  oled.clearDisplay();
+
+  switch (state) {
+
+    // ---- IDLE: neutral face, slow blink every ~60 frames --------
+    case FACE_IDLE: {
+      _drawHead();
+      if ((faceFrame % 60) < 4) _drawEyesBlink();
+      else                      _drawEyesOpen();
+      _mouthNeutral();
+      // JANSEVA text right side
+      oled.setTextSize(1);
+      oled.setTextColor(OLED_WHITE);
+      oled.setCursor(66, 4);  oled.print("JANSEVA");
+      oled.setCursor(66, 14); oled.print("  .AI");
+      oled.drawLine(64, 26, 127, 26, OLED_WHITE);
+      oled.setCursor(66, 30); oled.print(label.substring(0,9));
+      oled.setCursor(66, 42); oled.print("Touch to");
+      oled.setCursor(66, 52); oled.print("  start");
+      break;
+    }
+
+    // ---- LISTEN: big eyes, animated ear waves, mic icon ----------
+    case FACE_LISTEN: {
+      _drawHead();
+      // Pulsing ear tabs
+      uint8_t earH = 8 + (faceFrame % 4 < 2 ? 4 : 0);
+      oled.fillRect(0, 22, 2, earH, OLED_WHITE);
+      oled.fillRect(58, 22, 2, earH, OLED_WHITE);
+      _drawEyesOpen();
+      _mouthNeutral();
+      // Mic icon right side
+      oled.setTextSize(1);
+      oled.setTextColor(OLED_WHITE);
+      oled.setCursor(66, 0);  oled.print("Listening");
+      // Animated sound waves
+      uint8_t wOff = (faceFrame % 6) * 2;
+      oled.drawLine(66,         20+wOff, 66,         30-wOff, OLED_WHITE);
+      oled.drawLine(70,         16+wOff, 70,         34-wOff, OLED_WHITE);
+      oled.drawLine(74,         20+wOff, 74,         30-wOff, OLED_WHITE);
+      oled.drawLine(78,         24,      78,         26,      OLED_WHITE);
+      oled.setCursor(66, 44); oled.print("Boliye...");
+      oled.setCursor(66, 54); oled.print(label.substring(0,9));
+      break;
+    }
+
+    // ---- THINK: upward eyes, animated dots ----------------------
+    case FACE_THINK: {
+      _drawHead();
+      _drawEyesThink();
+      // pursed mouth (thinking)
+      oled.drawLine(20, 47, 40, 47, OLED_WHITE);
+      // Animated thinking dots right side
+      oled.setTextSize(1);
+      oled.setTextColor(OLED_WHITE);
+      oled.setCursor(66, 0); oled.print("Thinking");
+      oled.setCursor(66, 12); oled.print(label.substring(0,9));
+      // Three dots cycling
+      uint8_t d = faceFrame % 12;
+      if (d > 0)  { oled.fillCircle(72,  40, 3, OLED_WHITE); }
+      if (d > 3)  { oled.fillCircle(84,  40, 3, OLED_WHITE); }
+      if (d > 6)  { oled.fillCircle(96,  40, 3, OLED_WHITE); }
+      oled.setCursor(66, 52); oled.print("Please wait");
+      break;
+    }
+
+    // ---- SPEAK: open/close mouth animation ----------------------
+    case FACE_SPEAK: {
+      _drawHead();
+      _drawEyesHappy();
+      // Mouth cycles: open -> close -> open
+      uint8_t phase = faceFrame % 8;
+      uint8_t openAmt = (phase < 4) ? (2 + phase * 2) : (10 - (phase - 4) * 2);
+      if (openAmt < 2) openAmt = 2;
+      _mouthOpen(openAmt);
+      oled.setTextSize(1);
+      oled.setTextColor(OLED_WHITE);
+      oled.setCursor(66, 0);  oled.print("Speaking");
+      oled.setCursor(66, 12); oled.print(label.substring(0,9));
+      // Sound wave lines
+      oled.drawLine(66, 36, 66, 44, OLED_WHITE);
+      oled.drawLine(70, 32, 70, 48, OLED_WHITE);
+      oled.drawLine(74, 36, 74, 44, OLED_WHITE);
+      oled.drawLine(78, 34, 78, 46, OLED_WHITE);
+      oled.drawLine(82, 38, 82, 42, OLED_WHITE);
+      break;
+    }
+
+    // ---- HAPPY: big smile, sparkles, greeting -------------------
+    case FACE_GREET:
+    case FACE_HAPPY: {
+      _drawHead();
+      // Bigger antenna glow
+      oled.drawCircle(30, 2, 3, OLED_WHITE);
+      _drawEyesHappy();
+      _mouthSmile();
+      // Sparkles (twinkling)
+      if (faceFrame % 6 < 3) {
+        oled.fillCircle(68, 8,  2, OLED_WHITE);
+        oled.fillCircle(120, 20, 2, OLED_WHITE);
+      } else {
+        oled.fillCircle(80, 16, 2, OLED_WHITE);
+        oled.fillCircle(112, 6, 2, OLED_WHITE);
+      }
+      oled.setTextSize(1);
+      oled.setTextColor(OLED_WHITE);
+      oled.setCursor(66, 28); oled.print("Namaskar!");
+      oled.setCursor(66, 40); oled.print(label.substring(0,9));
+      oled.setCursor(66, 52); oled.print("JANSEVA.AI");
+      break;
+    }
+
+    // ---- SETUP: WiFi config screen ------------------------------
+    case FACE_SETUP: {
+      _drawHead();
+      _drawEyesOpen();
+      // neutral mouth with question mark feel
+      oled.drawCircle(30, 46, 4, OLED_WHITE); // O mouth
+      // WiFi symbol on right
+      oled.setTextSize(1);
+      oled.setTextColor(OLED_WHITE);
+      oled.setCursor(66, 0);  oled.print("WiFi Setup");
+      oled.setCursor(66, 12); oled.print("Connect to:");
+      oled.setCursor(66, 24); oled.print("JANSEVA");
+      oled.setCursor(66, 34); oled.print("_SETUP");
+      oled.setCursor(66, 46); oled.print("192.168.4.1");
+      break;
+    }
+
+    // ---- BYE: waving hand animation ----------------------------
+    case FACE_BYE: {
+      _drawHead();
+      _drawEyesHappy();
+      _mouthSmile();
+      // Waving arm
+      uint8_t waveY = (faceFrame % 6 < 3) ? 48 : 44;
+      oled.drawLine(58, 34, 72, waveY, OLED_WHITE);  // arm out
+      oled.fillCircle(74, waveY, 3, OLED_WHITE);      // hand
+      oled.setTextSize(1);
+      oled.setTextColor(OLED_WHITE);
+      oled.setCursor(78, 28); oled.print("Dhanya-");
+      oled.setCursor(78, 38); oled.print("waad!");
+      oled.setCursor(78, 50); oled.print(label.substring(0,8));
+      break;
+    }
+  }
+
+  oled.display();
+}
+
+// Legacy text helper (still used for portal/boot messages)
+void showOLED(String l1, String l2, String l3, String l4) {
+  oled.clearDisplay();
+  oled.setTextColor(OLED_WHITE);
+  oled.setTextSize(1);
+  oled.setCursor(0, 0);  oled.println(l1);
+  oled.drawLine(0, 10, 127, 10, OLED_WHITE);
+  oled.setCursor(0, 14); oled.println(l2);
+  oled.setCursor(0, 30); oled.println(l3);
+  oled.setCursor(0, 46); oled.println(l4);
+  oled.display();
+}
+
+// ============================================================================
+// I2S MICROPHONE INIT
+// ============================================================================
+void initMicrophone() {
+  i2s_config_t cfg = {
+    .mode                 = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
+    .sample_rate          = SAMPLE_RATE,
+    .bits_per_sample      = I2S_BITS_PER_SAMPLE_16BIT,
+    .channel_format       = I2S_CHANNEL_FMT_ONLY_LEFT,
+    .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+    .intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1,
+    .dma_buf_count        = 4,
+    .dma_buf_len          = 512,
+    .use_apll             = false,
+    .tx_desc_auto_clear   = false,
+    .fixed_mclk           = 0
+  };
+  i2s_pin_config_t pins = {
+    .bck_io_num   = PIN_MIC_SCK,
+    .ws_io_num    = PIN_MIC_WS,
+    .data_out_num = I2S_PIN_NO_CHANGE,
+    .data_in_num  = PIN_MIC_SD
+  };
+  i2s_driver_install(I2S_MIC_PORT, &cfg, 0, NULL);
+  i2s_set_pin(I2S_MIC_PORT, &pins);
+  i2s_zero_dma_buffer(I2S_MIC_PORT);
+}
+
+// ============================================================================
+// RECORD VOICE -> WAV in audioBuf
+// ============================================================================
+bool recordVoice(int maxSecs) {
+  if (!audioBuf) return false;
+  recBytes = 0;
+  size_t bytesRead = 0;
+  unsigned long start  = millis();
+  unsigned long limit  = (unsigned long)maxSecs * 1000UL;
+
+  drawRobotFace(FACE_LISTEN, "Boliye!");
+  Serial.printf("[MIC] Listening for %d seconds...\n", maxSecs);
+
+  int maxAmp = 0;
+  while (recBytes < (AUDIO_BUF_SZ - WAV_HDR_SZ - 512) &&
+         (millis() - start) < limit) {
+    uint8_t tmp[512];
+    i2s_read(I2S_MIC_PORT, tmp, sizeof(tmp), &bytesRead, portMAX_DELAY);
+    if (bytesRead > 0) {
+      int16_t* s16 = (int16_t*)tmp;
+      int sCount = bytesRead / 2;
+      for (int i = 0; i < sCount; i++) {
+        int a = abs(s16[i]);
+        if (a > maxAmp) maxAmp = a;
+      }
+      memcpy(audioBuf + WAV_HDR_SZ + recBytes, tmp, bytesRead);
+      recBytes += bytesRead;
+    }
+  }
+
+  Serial.printf("[MIC] Recorded %d bytes. Peak amplitude: %d\n", recBytes, maxAmp);
+  if (maxAmp < 100) {
+    Serial.println("[MIC] WARNING: Audio is near silence (amplitude < 100)!");
+    Serial.println("[MIC] Please check INMP441 wiring:");
+    Serial.println("[MIC] -> L/R pin MUST be connected to GND (Left channel)");
+    Serial.println("[MIC] -> VDD to 3.3V, GND to GND");
+    Serial.println("[MIC] -> SD to GPIO 32, WS to GPIO 15, SCK to GPIO 14");
+  }
+
+  if (recBytes < 512) return false;
+
+  // Build WAV header
+  uint32_t sr   = SAMPLE_RATE; uint16_t ch = 1, bps = 16;
+  uint32_t brate = sr * ch * (bps / 8);
+  uint32_t ds   = recBytes; uint32_t cs = 36 + ds;
+  uint16_t ba   = ch * (bps / 8); uint16_t fmt = 1; uint32_t s1sz = 16;
+  memcpy(audioBuf,    "RIFF", 4); memcpy(audioBuf+4,  &cs,   4);
+  memcpy(audioBuf+8,  "WAVE", 4);
+  memcpy(audioBuf+12, "fmt ", 4); memcpy(audioBuf+16, &s1sz, 4);
+  memcpy(audioBuf+20, &fmt,   2); memcpy(audioBuf+22, &ch,   2);
+  memcpy(audioBuf+24, &sr,    4); memcpy(audioBuf+28, &brate,4);
+  memcpy(audioBuf+32, &ba,    2); memcpy(audioBuf+34, &bps,  2);
+  memcpy(audioBuf+36, "data", 4); memcpy(audioBuf+40, &ds,   4);
+  recBytes += WAV_HDR_SZ;
+
+  return true;
+}
+
+// ============================================================================
+// SEND AUDIO FOR STT (Speech-to-Text)
+// ============================================================================
+String sendAudioForSTT() {
+  if (WiFi.status() != WL_CONNECTED || recBytes <= WAV_HDR_SZ) return "";
+  drawRobotFace(FACE_THINK, "Samajh...");
 
   HTTPClient http;
-  String endpoint = server_url + "/api/device/audio?format=audio";
-  http.begin(endpoint);
+  String url = cfg_server + "/api/device/stt?lang=" + activeLang + "&deviceId=" + cfg_devid;
+  http.begin(url);
   http.addHeader("Content-Type", "audio/wav");
-  http.addHeader("x-device-id", device_id);
-  http.setTimeout(25000); // 25s timeout for AI generation
+  http.addHeader("X-Device-Id",  cfg_devid);
+  http.setTimeout(25000);
 
-  int httpCode = http.POST(audioBuffer, recordedBytes);
-  Serial.printf("Server response code: %d\n", httpCode);
+  int code = http.POST(audioBuf, recBytes);
+  Serial.printf("[STT] HTTP response: %d\n", code);
 
-  if (httpCode == HTTP_CODE_OK) {
-    String replyText = http.header("X-Reply-Text");
-    if (replyText.length() == 0) replyText = "Playing Voice Answer";
-
-    showOLED("JANSEVA AI Answer", "Speaking on speaker...", replyText.substring(0, 40), "");
-
-    // Stream received audio to PAM8403 Speaker via DAC (GPIO 25)
-    WiFiClient* stream = http.getStreamPtr();
-    size_t size = http.getSize();
-    uint8_t pcmBuf[256];
-
-    while (http.connected() && (size > 0 || size == -1)) {
-      size_t availableBytes = stream->available();
-      if (availableBytes > 0) {
-        int readBytes = stream->readBytes(pcmBuf, min(availableBytes, sizeof(pcmBuf)));
-        if (readBytes > 0) {
-          playDACAudio(pcmBuf, readBytes);
-          if (size > 0) size -= readBytes;
-        }
-      }
-      delay(1);
+  String result = "";
+  if (code == 200) {
+    String body = http.getString();
+    StaticJsonDocument<512> doc;
+    if (deserializeJson(doc, body) == DeserializationError::Ok) {
+      result = doc["text"] | doc["reply"] | "";
+    } else {
+      result = body;
     }
+    result.trim();
+    Serial.println("[STT] Recognized: " + result);
   } else {
-    String err = http.getString();
-    Serial.println("Server error: " + err);
-    showOLED("Error from Server", "Code: " + String(httpCode), "Check PC / Server", "");
-    delay(2500);
+    Serial.printf("[STT] Error %d from server\n", code);
   }
-
   http.end();
+  return result;
 }
 
-// ── PLAY AUDIO THROUGH DAC (GPIO 25) TO PAM8403 ─────────────────────────────
-void playDACAudio(const uint8_t* data, size_t len) {
-  for (size_t i = 0; i < len; i++) {
-    // 8-bit DAC output on GPIO 25
-    dacWrite(DAC_CHANNEL_1, data[i]);
-    delayMicroseconds(60); // ~16kHz sample rate timing
+// ============================================================================
+// SEND CHAT MESSAGE TO AI
+// ============================================================================
+String sendChatMessage(String message, String ctx) {
+  if (WiFi.status() != WL_CONNECTED) return "";
+
+  HTTPClient http;
+  http.begin(cfg_server + "/api/chat");
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Id",  cfg_devid);
+  http.setTimeout(30000);
+
+  StaticJsonDocument<1024> req;
+  req["message"]       = message;
+  req["language"]      = activeLang;
+  req["conversationId"]= convId;
+  req["deviceContext"] = ctx;
+  req["deviceId"]      = cfg_devid;
+  req["location"]      = cfg_location;
+
+  String body;
+  serializeJson(req, body);
+  int code = http.POST(body);
+  Serial.printf("[CHAT] HTTP %d\n", code);
+
+  String reply = "";
+  if (code == 200) {
+    String res = http.getString();
+    StaticJsonDocument<2048> doc;
+    if (deserializeJson(doc, res) == DeserializationError::Ok)
+      reply = doc["reply"] | doc["message"] | "";
+    reply.trim();
+    Serial.println("[CHAT] " + reply.substring(0, 80));
   }
+  http.end();
+  return reply;
 }
 
-// ── SEND PERIODIC HEARTBEAT ─────────────────────────────────────────────────
+// ============================================================================
+// SPEAK TEXT via TTS -> DAC -> PAM8403
+// ============================================================================
+void speakText(String text, String lang) {
+  if (text.length() == 0 || WiFi.status() != WL_CONNECTED) return;
+  if (lang.length() == 0) lang = activeLang;
+
+  // Strip markdown
+  text.replace("**", ""); text.replace("*", "");
+  text.replace("__", ""); text.replace("#", "");
+  text.replace("`",  ""); text.replace("\n", " ");
+  if (text.length() > 300) text = text.substring(0, 300);
+
+  Serial.println("[TTS] Requesting voice for: " + text.substring(0, 30) + "...");
+  HTTPClient http;
+  http.begin(cfg_server + "/api/device/tts");
+  http.addHeader("Content-Type", "application/json");
+  http.setTimeout(15000);
+
+  StaticJsonDocument<512> req;
+  req["text"]   = text;
+  req["lang"]   = lang;
+  req["format"] = "pcm";
+  req["rate"]   = "+15%";
+  String reqBody;
+  serializeJson(req, reqBody);
+
+  int code = http.POST(reqBody);
+  Serial.printf("[TTS] Response code: %d, Content-Length: %d\n", code, http.getSize());
+
+  if (code == 200) {
+    drawRobotFace(FACE_SPEAK, "Bol raha..");
+    WiFiClient* stream = http.getStreamPtr();
+    int size = http.getSize();
+    size_t freeHeap = ESP.getFreeHeap();
+    Serial.printf("[TTS] Audio size: %d, Free Heap: %u\n", size, freeHeap);
+
+    // If audio fits in RAM (keeping 45KB safe margin for WiFi/system),
+    // download entirely first into RAM. This eliminates 100% of Wi-Fi buffer pauses and slow-motion speech!
+    if (size > 0 && size < (int)(freeHeap - 45000)) {
+      uint8_t* audioBuf = (uint8_t*)malloc(size);
+      if (audioBuf) {
+        int totalRead = 0;
+        unsigned long dlStart = millis();
+        while (totalRead < size && (millis() - dlStart < 6000)) {
+          int avail = stream->available();
+          if (avail > 0) {
+            int r = stream->readBytes(audioBuf + totalRead, min(avail, size - totalRead));
+            if (r > 0) totalRead += r;
+          } else {
+            delay(1);
+          }
+        }
+        Serial.printf("[TTS] Downloaded %d/%d bytes in %lu ms. Playing smooth audio...\n", totalRead, size, millis() - dlStart);
+        playDAC(audioBuf, totalRead);
+        free(audioBuf);
+      } else {
+        streamAudioFromNetwork(stream, size);
+      }
+    } else {
+      streamAudioFromNetwork(stream, size);
+    }
+    Serial.println("[TTS] Playback complete");
+  } else {
+    Serial.printf("[TTS] Error HTTP %d from server\n", code);
+  }
+  http.end();
+  dacWrite(PIN_AUDIO_DAC, 0); // silence to prevent DC hum
+}
+
+// Fallback streamer with 2048-byte buffer for long responses
+void streamAudioFromNetwork(WiFiClient* stream, int size) {
+  const size_t CHUNK = 2048;
+  uint8_t* chunk = (uint8_t*)malloc(CHUNK);
+  if (!chunk) return;
+  unsigned long startAudio = millis();
+  while (stream->connected() && (size > 0 || size == -1)) {
+    int avail = stream->available();
+    if (avail >= 512 || (size > 0 && avail == size)) {
+      int toRead = min(avail, (int)CHUNK);
+      int r = stream->readBytes(chunk, toRead);
+      if (r > 0) {
+        playDAC(chunk, r);
+        if (size > 0) size -= r;
+      }
+    } else if (avail > 0 && !stream->connected()) {
+      int r = stream->readBytes(chunk, min(avail, (int)CHUNK));
+      if (r > 0) playDAC(chunk, r);
+      break;
+    } else {
+      delay(2);
+    }
+    if (millis() - startAudio > 30000) break;
+  }
+  free(chunk);
+}
+
+// ============================================================================
+// DAC AUDIO PLAYBACK -> GPIO 25 -> PAM8403
+// ============================================================================
+void playDAC(const uint8_t* data, size_t len) {
+  // Accurate 16,000 Hz hardware-timed playback (62.5 us period)
+  // Microsecond timestamp tracking prevents any FreeRTOS or loop-overhead drift
+  const uint32_t periodUs = 62;
+  uint32_t nextUs = micros();
+  for (size_t i = 0; i < len; i++) {
+    dacWrite(PIN_AUDIO_DAC, data[i]);
+    nextUs += periodUs;
+    int32_t waitUs = (int32_t)(nextUs - micros());
+    if (waitUs > 0) {
+      delayMicroseconds(waitUs);
+    }
+  }
+  dacWrite(PIN_AUDIO_DAC, 0); // silence to prevent DC hum
+}
+
+// ============================================================================
+// HEARTBEAT
+// ============================================================================
 void sendHeartbeat() {
   if (WiFi.status() != WL_CONNECTED) return;
   HTTPClient http;
-  http.begin(server_url + "/api/device/heartbeat");
+  http.begin(cfg_server + "/api/device/heartbeat");
   http.addHeader("Content-Type", "application/json");
+  http.setTimeout(5000);
 
-  StaticJsonDocument<200> doc;
-  doc["deviceId"] = device_id;
-  doc["ip"] = WiFi.localIP().toString();
-  doc["rssi"] = WiFi.RSSI();
+  StaticJsonDocument<256> doc;
+  doc["deviceId"] = cfg_devid;
+  doc["location"] = cfg_location;
+  doc["ip"]       = WiFi.localIP().toString();
+  doc["rssi"]     = WiFi.RSSI();
   doc["freeHeap"] = ESP.getFreeHeap();
+  doc["lang"]     = cfg_lang;
 
-  String payload;
-  serializeJson(doc, payload);
-  http.POST(payload);
-  http.end();
+  String body; serializeJson(doc, body);
+  http.POST(body); http.end();
+  Serial.println("[HB] Sent");
 }
 
-// ── CAPTIVE PORTAL (WIFI SETUP AT 192.168.4.1) ──────────────────────────────
-void startCaptivePortal() {
-  inConfigPortal = true;
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(AP_SSID);
+// ============================================================================
+// CONVERSATION STATE MACHINE
+// ============================================================================
+void resetConversation() {
+  userName     = ""; userPhone  = "";
+  userProblem  = ""; lastSolution = "";
+  activeLang   = cfg_lang;
+  convId       = "esp32_" + String(millis());
+}
+
+void runConversationStep(String voiceInput) {
+  voiceInput.trim();
+  String vi = voiceInput; vi.toLowerCase();
+
+  switch (convStep) {
+
+    // STEP 1: Greeting + ask language
+    case STEP_GREET: {
+      for(int i=0;i<8;i++){ drawRobotFace(FACE_GREET,"Namaskar"); delay(120); }  // animate greeting
+      String g = (activeLang=="hi")
+        ? "Namaskar! Main JANSEVA.AI hoon. Kaunsi bhasha mein baat karein? Hindi, English, Marathi ya Gujarati boliye."
+        : "Welcome! I am JANSEVA.AI. Please say your preferred language: Hindi, English, Marathi, or Gujarati.";
+      drawRobotFace(FACE_SPEAK, "Bhasha");
+      speakText(g, activeLang);
+      convStep = STEP_LANG_CHOICE;
+      delay(300);
+      drawRobotFace(FACE_LISTEN, "Bhasha?");
+      if (recordVoice(5)) { String t=sendAudioForSTT(); if(t.length()>0) runConversationStep(t); }
+      break;
+    }
+
+    // STEP 2: Detect language
+    case STEP_LANG_CHOICE: {
+      if      (vi.indexOf("english")>=0||vi.indexOf("angrezi")>=0) activeLang="en";
+      else if (vi.indexOf("marathi")>=0)  activeLang="mr";
+      else if (vi.indexOf("gujarati")>=0) activeLang="gu";
+      else if (vi.indexOf("tamil")>=0)    activeLang="ta";
+      else if (vi.indexOf("telugu")>=0)   activeLang="te";
+      else if (vi.indexOf("bengali")>=0||vi.indexOf("bangla")>=0) activeLang="bn";
+      else if (vi.indexOf("punjabi")>=0)  activeLang="pa";
+      else if (vi.indexOf("kannada")>=0)  activeLang="kn";
+      else if (vi.indexOf("malayalam")>=0)activeLang="ml";
+      else if (vi.indexOf("urdu")>=0)     activeLang="ur";
+      else activeLang="hi";
+
+      String c = (activeLang=="hi") ? "Theek hai, Hindi mein baat karenge." :
+                 (activeLang=="en") ? "Great, we will speak in English." :
+                 (activeLang=="mr") ? "Thik ahe! Marathi madhe bolto." :
+                                     "Understood! Language: " + activeLang;
+      speakText(c, activeLang);
+      convStep=STEP_ASK_NAME; delay(200); runConversationStep("");
+      break;
+    }
+
+    // STEP 3: Ask name
+    case STEP_ASK_NAME: {
+      String q = (activeLang=="hi") ? "Aapka pura naam kya hai?" :
+                 (activeLang=="mr") ? "Tumcha pura nav kay aahe?" :
+                                     "What is your full name?";
+      drawRobotFace(FACE_SPEAK, "Naam?");
+      speakText(q, activeLang);
+      convStep=STEP_GET_NAME; delay(300);
+      drawRobotFace(FACE_LISTEN, "Naam");
+      if(recordVoice(6)){String t=sendAudioForSTT();if(t.length()>0)runConversationStep(t);}
+      break;
+    }
+
+    // STEP 4: Capture name
+    case STEP_GET_NAME: {
+      if(vi.length()<2){
+        speakText((activeLang=="hi")?"Naam nahi mila, dobara boliye.":"Name not heard, please repeat.",activeLang);
+        convStep=STEP_ASK_NAME; delay(200); runConversationStep(""); break;
+      }
+      userName=voiceInput; userName[0]=toupper(userName[0]);
+      String ack=(activeLang=="hi")?"Dhanyawaad, "+userName+" ji.":
+                 (activeLang=="mr")?"Dhanyavad, "+userName+".":
+                 "Thank you, "+userName+".";
+      speakText(ack,activeLang);
+      convStep=STEP_ASK_PHONE; delay(200); runConversationStep(""); break;
+    }
+
+    // STEP 5: Ask phone
+    case STEP_ASK_PHONE: {
+      String q=(activeLang=="hi")?userName+" ji, apna 10 angka ka mobile number boliye.":
+               (activeLang=="mr")?userName+", tumcha 10 ankach mobile number sanga.":
+               userName+", please say your 10-digit mobile number.";
+      drawRobotFace(FACE_SPEAK, "Number?");
+      speakText(q,activeLang);
+      convStep=STEP_GET_PHONE; delay(300);
+      drawRobotFace(FACE_LISTEN, "Number");
+      if(recordVoice(8)){String t=sendAudioForSTT();if(t.length()>0)runConversationStep(t);}
+      break;
+    }
+
+    // STEP 6: Capture phone
+    case STEP_GET_PHONE: {
+      String digits="";
+      for(char c:voiceInput) if(isDigit(c)) digits+=c;
+      if(digits.length()<6){
+        speakText((activeLang=="hi")?"Number sahi nahi mila, dobara boliye.":
+                                    "Number not captured, please repeat.",activeLang);
+        convStep=STEP_ASK_PHONE; delay(200); runConversationStep(""); break;
+      }
+      userPhone=digits;
+      String ack=(activeLang=="hi")?"Number note ho gaya. Ab apni samasya boliye.":
+                 (activeLang=="mr")?"Number note jhala. Tumchi samasya sanga.":
+                 "Got your number. Please tell me your problem.";
+      speakText(ack,activeLang);
+      convStep=STEP_ASK_PROBLEM; delay(200); runConversationStep(""); break;
+    }
+
+    // STEP 7: Ask problem
+    case STEP_ASK_PROBLEM: {
+      String q=(activeLang=="hi")?"Boliye, aapka kya sawal hai ya koi sarkari yojana ke baare mein jaankaari chahiye?":
+               (activeLang=="mr")?"Sanga, tumcha prashna kai aahe kinva koni sarkari yojnebaddal mahiti havi aahe?":
+               "Please tell me your question or which government scheme you want to know about.";
+      drawRobotFace(FACE_SPEAK, "Sawal?");
+      speakText(q,activeLang);
+      convStep=STEP_GET_PROBLEM; delay(300);
+      drawRobotFace(FACE_LISTEN, "Boliye!");
+      if(recordVoice(MAX_REC_SECS)){String t=sendAudioForSTT();if(t.length()>0)runConversationStep(t);}
+      break;
+    }
+
+    // STEP 8: Process problem -> AI
+    case STEP_GET_PROBLEM: {
+      if(vi.length()<3){
+        speakText((activeLang=="hi")?"Sawal sahi nahi mila, dobara boliye.":"Could not understand, please repeat.",activeLang);
+        convStep=STEP_ASK_PROBLEM; delay(200); runConversationStep(""); break;
+      }
+      userProblem=voiceInput;
+      convStep=STEP_THINKING;
+      drawRobotFace(FACE_THINK, "Soch...");
+      String th=(activeLang=="hi")?"Ek minute, main aapka jawab dhundh raha hoon.":
+                (activeLang=="mr")?"Ek minute, mi jawab shodhato ahe.":
+                "One moment, finding the best answer for you.";
+      drawRobotFace(FACE_SPEAK, "Jawab");
+      speakText(th,activeLang);
+      // Keep animating thinking face while AI call is in progress
+      for(int i=0;i<5;i++){ drawRobotFace(FACE_THINK,"Soch..."); delay(300); }
+
+      String ctx="User: "+userName+". Phone: "+userPhone+". Location: "+cfg_location+". Device: "+cfg_devid+". "
+                +"Respond ONLY in language code: "+activeLang+". "
+                +"Keep answer SHORT (3-5 bullet points) suitable for voice reading. "
+                +"Focus on government schemes relevant to location: "+cfg_location;
+
+      String ans=sendChatMessage(userProblem,ctx);
+      if(ans.length()==0)
+        ans=(activeLang=="hi")?"Maafi, server se jawab nahi mila. Baad mein try karein.":
+            "Sorry, could not get server response. Please try again later.";
+      lastSolution=ans;
+      convStep=STEP_SPEAK_SOLUTION; delay(200); runConversationStep(""); break;
+    }
+
+    // STEP 9: Speak solution
+    case STEP_SPEAK_SOLUTION: {
+      drawRobotFace(FACE_SPEAK, userName.substring(0,8));
+      String pre=(activeLang=="hi")?userName+" ji, suniye. ":
+                 (activeLang=="mr")?userName+", aika. ":
+                 userName+", here is your answer. ";
+      speakText(pre+lastSolution,activeLang);
+      convStep=STEP_ASK_REPEAT; delay(500); runConversationStep(""); break;
+    }
+
+    // STEP 10: Ask to repeat
+    case STEP_ASK_REPEAT: {
+      String q=(activeLang=="hi")?"Kya aap jawab dobara sunna chahenge? Haan boliye ya touch karein.":
+               (activeLang=="mr")?"Jawab parath aikaycha aahe ka? Haan bola kinva touch kara.":
+               "Would you like me to repeat the answer? Say yes or touch.";
+      drawRobotFace(FACE_SPEAK, "Dobara?");
+      speakText(q,activeLang);
+      delay(300);
+      drawRobotFace(FACE_LISTEN, "Haan/Na");
+      if(recordVoice(4)){
+        String r=sendAudioForSTT(); r.toLowerCase();
+        const char* YES[]={
+          "haan","ha","yes","repeat","dobara","phir","aur","parath"
+        };
+        if(containsAny(r,YES,8)){ drawRobotFace(FACE_SPEAK,"Suniye"); speakText(lastSolution,activeLang); }
+      }
+      convStep=STEP_ASK_MORE; delay(400); runConversationStep(""); break;
+    }
+
+    // STEP 11: Ask for more help
+    case STEP_ASK_MORE: {
+      String q=(activeLang=="hi")?"Kya aapko koi aur madad chahiye? Haan boliye ya touch karein. Nahi to jaiye, Dhanyawaad!":
+               (activeLang=="mr")?"Tumhala aajun madad pahije ka? Haan bola kinva touch kara. Nahi tar jaava.":
+               "Do you need more help? Say yes or touch. Otherwise, thank you and goodbye!";
+      drawRobotFace(FACE_SPEAK, "Kuch aur?");
+      speakText(q,activeLang);
+      delay(300);
+      drawRobotFace(FACE_LISTEN, "Haan/Na");
+      if(recordVoice(4)){
+        String r=sendAudioForSTT(); r.toLowerCase();
+        const char* YES[]={
+          "haan","ha","yes","aur","more","help","kuch","problem","sawal"
+        };
+        if(containsAny(r,YES,9)){
+          convStep=STEP_ASK_PROBLEM; runConversationStep(""); break;
+        }
+      }
+      // End session
+      String bye=(activeLang=="hi")?"Bahut bahut dhanyawaad, "+userName+" ji. Aapki seva karke khushi hui. Jai Hind!":
+                 (activeLang=="mr")?"Khup dhanyavad, "+userName+". Seva karta aanand jhala. Jai Hind!":
+                 "Thank you very much, "+userName+"! Pleasure serving you. Jai Hind!";
+      drawRobotFace(FACE_BYE, userName.substring(0,8));
+      speakText(bye,activeLang);
+      // Animate goodbye for 3 seconds
+      for(int i=0;i<12;i++){ drawRobotFace(FACE_BYE, userName.substring(0,8)); delay(250); }
+      convStep=STEP_IDLE;
+      drawRobotFace(FACE_IDLE, cfg_location.substring(0,9));
+      break;
+    }
+
+    default: convStep=STEP_IDLE; break;
+  }
+}
+
+// ============================================================================
+// CAPTIVE PORTAL
+// ============================================================================
+void handlePortalRedirect() {
+  portalServer.sendHeader("Location", "http://192.168.4.1/", true);
+  portalServer.send(302, "text/plain", "");
+}
+
+void startPortal() {
+  portalActive = true;
+
+  Serial.println("\n==========================================");
+  Serial.println("[PORTAL] Starting WiFi Hotspot Setup Mode...");
+  Serial.println("==========================================");
+
+  // 1. Reset WiFi radio
+  WiFi.disconnect(true, true);
+  WiFi.mode(WIFI_OFF);
   delay(200);
 
-  IPAddress apIP = WiFi.softAPIP();
-  dnsServer.start(DNS_PORT, "*", apIP);
+  // 2. Set AP mode and disable radio sleep
+  WiFi.mode(WIFI_AP);
+  WiFi.setSleep(false);
+  delay(100);
 
-  Serial.println("\n-------------------------------------------");
-  Serial.printf("📡 Captive Portal Started! AP: %s\n", AP_SSID);
-  Serial.printf("🌐 Connect your phone & open: http://%s\n", apIP.toString().c_str());
-  Serial.println("-------------------------------------------");
+  // 3. Configure IP BEFORE starting softAP (MANDATORY on ESP32)
+  IPAddress apIP(192, 168, 4, 1);
+  IPAddress netMsk(255, 255, 255, 0);
+  WiFi.softAPConfig(apIP, apIP, netMsk);
+  delay(100);
 
-  showOLED("WiFi Setup Mode", "1. Connect WiFi:", AP_SSID, "2. Go to: 192.168.4.1");
+  // 4. Start Open Hotspot (No password - pass only AP_NAME)
+  bool apStarted = WiFi.softAP(AP_NAME);
+  delay(500);
 
-  server.on("/", handleRoot);
-  server.on("/save", HTTP_POST, handleSave);
-  server.onNotFound(handleRoot); // Captive portal redirect
-  server.begin();
+  IPAddress assignedIP = WiFi.softAPIP();
+  Serial.println("[PORTAL] AP Status:    " + String(apStarted ? "ACTIVE (Broadcasting)" : "FAILED"));
+  Serial.println("[PORTAL] Hotspot SSID: " + String(AP_NAME));
+  Serial.println("[PORTAL] IP Address:   " + assignedIP.toString());
+  Serial.println("[PORTAL] -> Look for WiFi 'JANSEVA_SETUP' on your phone");
+  Serial.println("[PORTAL] -> Connect to it and open: http://192.168.4.1");
+  Serial.println("==========================================\n");
+
+  // 5. DNS Captive Redirect
+  dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
+  dnsServer.start(53, "*", apIP);
+
+  // 6. Web Routes
+  portalServer.on("/",                  HTTP_GET,  handlePortalRoot);
+  portalServer.on("/save",              HTTP_POST, handlePortalSave);
+  portalServer.on("/generate_204",                 handlePortalRedirect);
+  portalServer.on("/gen_204",                      handlePortalRedirect);
+  portalServer.on("/hotspot-detect.html",          handlePortalRoot);
+  portalServer.on("/ncsi.txt",                     handlePortalRoot);
+  portalServer.onNotFound(handlePortalRedirect);
+  portalServer.begin();
+
+  drawRobotFace(FACE_SETUP, "Setup");
 }
 
-void handleRoot() {
-  String html = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<title>JANSEVA.AI Device Setup</title>"
+void handlePortalRoot() {
+  String html = "<!DOCTYPE html><html><head>"
+    "<meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<title>JANSEVA.AI Setup</title>"
     "<style>"
-    "body{font-family:Arial,sans-serif;background:#0B1F3A;color:#fff;margin:0;padding:20px;}"
-    ".card{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);padding:24px;border-radius:12px;max-width:400px;margin:auto;}"
-    "h2{color:#FF9933;margin-top:0;font-size:22px;}"
-    "label{display:block;margin-top:14px;font-size:13px;color:#cbd5e1;}"
-    "input{width:100%;box-sizing:border-box;padding:12px;margin-top:6px;border-radius:6px;border:1px solid rgba(255,255,255,0.2);background:#071322;color:#fff;font-size:15px;}"
-    "button{width:100%;padding:14px;margin-top:22px;background:#FF9933;border:none;border-radius:6px;color:#0B1F3A;font-weight:bold;font-size:16px;cursor:pointer;}"
-    ".badge{background:#138808;padding:4px 8px;border-radius:4px;font-size:11px;font-weight:bold;}"
-    "</style></head><body>"
-    "<div class='card'>"
-    "<h2>🇮🇳 JANSEVA.AI Kiosk <span class='badge'>Setup</span></h2>"
-    "<p style='font-size:13px;color:#94a3b8;'>Configure home WiFi and backend server address.</p>"
+    "*{box-sizing:border-box;margin:0;padding:0}"
+    "body{font-family:'Segoe UI',Arial,sans-serif;background:linear-gradient(135deg,#0B1F3A,#0f2d4a);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}"
+    ".card{background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);padding:28px 24px;border-radius:16px;max-width:420px;width:100%}"
+    ".logo{font-size:26px;font-weight:900;color:#FF9933;margin-bottom:4px}"
+    ".sub{font-size:12px;color:#94a3b8;margin-bottom:20px}"
+    ".sec{background:rgba(255,255,255,0.04);border-radius:10px;padding:16px;margin-bottom:14px;border:1px solid rgba(255,255,255,0.08)}"
+    ".sec-title{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#FF9933;margin-bottom:10px;font-weight:700}"
+    "label{display:block;font-size:12px;color:#cbd5e1;margin-bottom:3px;margin-top:10px}"
+    "label:first-of-type{margin-top:0}"
+    "input,select{width:100%;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:#071322;color:#fff;font-size:13px;outline:none}"
+    ".hint{font-size:10px;color:#64748b;margin-top:3px}"
+    "button{width:100%;padding:13px;margin-top:18px;background:linear-gradient(135deg,#FF9933,#e8860a);border:none;border-radius:10px;color:#0B1F3A;font-weight:800;font-size:15px;cursor:pointer}"
+    ".flag{display:flex;gap:4px;margin-bottom:14px}"
+    ".flag span{height:4px;border-radius:3px;flex:1}"
+    ".f1{background:#FF9933}.f2{background:#fff}.f3{background:#138808}"
+    ".info{background:rgba(255,153,51,0.08);border:1px solid rgba(255,153,51,0.2);padding:10px;border-radius:8px;font-size:11px;color:#fed7aa;line-height:1.7;margin-bottom:14px}"
+    "</style></head><body><div class='card'>"
+    "<div class='flag'><span class='f1'></span><span class='f2'></span><span class='f3'></span></div>"
+    "<div class='logo'>JANSEVA.AI</div>"
+    "<div class='sub'>ESP32 Smart Citizen Kiosk Setup</div>"
+    "<div class='info'>Step 1: Connect to WiFi: <b>JANSEVA_SETUP</b><br>Step 2: Fill this form & Save</div>"
     "<form method='POST' action='/save'>"
-    "<label>Home/Office WiFi SSID:</label><input name='ssid' value='" + wifi_ssid + "' placeholder='WiFi Name' required>"
-    "<label>WiFi Password:</label><input name='pass' type='password' value='" + wifi_password + "' placeholder='WiFi Password'>"
-    "<label>JANSEVA Server URL:</label><input name='server' value='" + server_url + "' placeholder='http://192.168.1.100:3000' required>"
-    "<label>Device ID / Name:</label><input name='devid' value='" + device_id + "' placeholder='JANSEVA-ESP32-1' required>"
-    "<button type='submit'>💾 Save & Connect</button>"
+    "<div class='sec'><div class='sec-title'>Home WiFi</div>"
+    "<label>WiFi SSID (Network Name)</label><input name='ssid' value='" + cfg_ssid + "' placeholder='Your Home WiFi' required>"
+    "<label>WiFi Password</label><input name='pass' type='password' placeholder='Leave blank if open'></div>"
+    "<div class='sec'><div class='sec-title'>Server & Device</div>"
+    "<label>JANSEVA Server URL</label><input name='server' value='" + cfg_server + "' placeholder='http://10.111.125.210:3000' required>"
+    "<div class='hint'>Your PC IP on WiFi: 10.111.125.210:3000</div>"
+    "<label>Device ID</label><input name='devid' value='" + cfg_devid + "' placeholder='JANSEVA-ESP32-1' required></div>"
+    "<div class='sec'><div class='sec-title'>Location & Language</div>"
+    "<label>Location (State / District / Block)</label><input name='location' value='" + cfg_location + "' placeholder='Maharashtra / Pune / Haveli' required>"
+    "<div class='hint'>Used for location-specific government scheme answers</div>"
+    "<label>Default Language</label><select name='deflang'>"
+    "<option value='hi'>Hindi</option><option value='en'>English</option>"
+    "<option value='mr'>Marathi</option><option value='gu'>Gujarati</option>"
+    "<option value='ta'>Tamil</option><option value='te'>Telugu</option>"
+    "<option value='bn'>Bengali</option><option value='pa'>Punjabi</option>"
+    "<option value='kn'>Kannada</option><option value='ml'>Malayalam</option>"
+    "<option value='ur'>Urdu</option></select></div>"
+    "<button type='submit'>Save & Connect</button>"
     "</form></div></body></html>";
-
-  server.send(200, "text/html", html);
+  portalServer.send(200, "text/html", html);
 }
 
-void handleSave() {
-  wifi_ssid     = server.arg("ssid");
-  wifi_password = server.arg("pass");
-  server_url    = server.arg("server");
-  device_id     = server.arg("devid");
+void handlePortalSave() {
+  cfg_ssid     = portalServer.arg("ssid");
+  cfg_pass     = portalServer.arg("pass");
+  cfg_server   = portalServer.arg("server");
+  cfg_devid    = portalServer.arg("devid");
+  cfg_location = portalServer.arg("location");
+  cfg_lang     = portalServer.arg("deflang");
+  if(cfg_lang.length()==0) cfg_lang="hi";
 
-  prefs.putString("ssid", wifi_ssid);
-  prefs.putString("pass", wifi_password);
-  prefs.putString("server", server_url);
-  prefs.putString("devid", device_id);
+  prefs.putString("ssid",     cfg_ssid);
+  prefs.putString("pass",     cfg_pass);
+  prefs.putString("server",   cfg_server);
+  prefs.putString("devid",    cfg_devid);
+  prefs.putString("location", cfg_location);
+  prefs.putString("deflang",  cfg_lang);
 
-  String html = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<style>body{font-family:Arial;background:#0B1F3A;color:#fff;text-align:center;padding:40px;}</style></head>"
-    "<body><h2>✅ Settings Saved!</h2><p>Connecting to WiFi: <b>" + wifi_ssid + "</b>...</p>"
-    "<p>ESP32 is restarting now.</p></body></html>";
-
-  server.send(200, "text/html", html);
+  String html = "<!DOCTYPE html><html><head><style>body{font-family:Arial;background:#0B1F3A;color:#fff;text-align:center;padding:40px}</style></head>"
+    "<body><h2 style='color:#FF9933'>Settings Saved!</h2>"
+    "<p>WiFi: <b>" + cfg_ssid + "</b></p>"
+    "<p>Device: <b>" + cfg_devid + "</b> at " + cfg_location + "</p>"
+    "<p style='color:#94a3b8;margin-top:20px'>Restarting now... Reconnect to your home WiFi.</p></body></html>";
+  portalServer.send(200, "text/html", html);
+  showOLED("Saved! Restarting", cfg_ssid, cfg_devid, "");
   delay(1500);
   ESP.restart();
+}
+
+// ============================================================================
+// UTILITY: Check if haystack contains any needle word
+// ============================================================================
+bool containsAny(String haystack, const char* needles[], int count) {
+  for(int i=0;i<count;i++) if(haystack.indexOf(needles[i])>=0) return true;
+  return false;
 }

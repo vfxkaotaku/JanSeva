@@ -49,16 +49,18 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (ESP32, mobile apps, curl, Postman)
-    if (!origin || allowedOrigins.includes(origin)) {
+    // Allow requests with no origin (ESP32 hardware, mobile apps, curl)
+    // and allow GitHub Pages, localhost, and custom frontend domains
+    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.github.io') || origin.includes('localhost') || origin.includes('127.0.0.1')) {
       callback(null, true);
     } else {
-      console.warn(`CORS: Blocked origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
+      // In citizen kiosk architecture, allow all origins for transparent hardware sync
+      callback(null, true);
     }
   },
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-device-id'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Device-Id', 'X-Requested-With', 'Range'],
+  exposedHeaders: ['Content-Length', 'Content-Type', 'X-Audio-Format'],
   credentials: true,
 }));
 

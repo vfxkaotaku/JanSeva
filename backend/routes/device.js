@@ -79,8 +79,45 @@ router.post('/heartbeat', (req, res) => {
 });
 
 /**
+ * POST /api/device/stt
+ * Speech-to-Text endpoint for ESP32 conversation flow.
+ * Transcribes audio recorded via INMP441 into text.
+ */
+router.post('/stt', async (req, res, next) => {
+  try {
+    const deviceId = req.headers['x-device-id'] || req.query.deviceId || 'JANSEVA-ESP32';
+    let audioBuffer;
+    let mimeType = req.headers['content-type'] || 'audio/wav';
+
+    if (Buffer.isBuffer(req.body)) {
+      audioBuffer = req.body;
+    } else if (req.body?.audioBase64) {
+      audioBuffer = Buffer.from(req.body.audioBase64, 'base64');
+      mimeType = req.body.mimeType || 'audio/wav';
+    } else {
+      return res.status(400).json({ success: false, message: 'No audio data received' });
+    }
+
+    deviceService.logActivity(deviceId, `Recording received (${audioBuffer.length} bytes), transcribing...`);
+
+    const text = await speechService.transcribeAudio(audioBuffer, mimeType);
+    deviceService.logActivity(deviceId, `Heard: "${text}"`);
+
+    res.json({
+      success: true,
+      text,
+      reply: text,
+      deviceId,
+    });
+  } catch (err) {
+    console.error('[STT Error]', err.message);
+    next(err);
+  }
+});
+
+/**
  * POST /api/device/audio
- * Receive voice audio from ESP32 (INMP441 recording).
+ * Receive voice audio from ESP32 (INMP441 recording) and return direct AI answer.
  * Supports raw audio in body or JSON with base64 audio.
  */
 router.post('/audio', async (req, res, next) => {
@@ -122,6 +159,7 @@ router.post('/audio', async (req, res, next) => {
       success: true,
       deviceId,
       reply: result.reply,
+      text: result.reply,
       language: result.language,
       ttsUrl: `/api/device/tts?text=${encodeURIComponent(result.reply.slice(0, 250))}&lang=${result.language}`,
       timestamp: new Date().toISOString(),
@@ -161,17 +199,34 @@ router.post('/text', async (req, res, next) => {
 });
 
 /**
- * GET /api/device/tts
+ * ALL /api/device/tts
  * Generate and stream TTS audio for hardware speaker (PAM8403) and web preview.
+ * Supports:
+ *   - format=pcm: 16kHz 8-bit unsigned PCM for ESP32 internal DAC (default for POST)
+ *   - format=mp3: standard audio/mpeg for web browser playback
  */
-router.get('/tts', async (req, res, next) => {
+router.all('/tts', async (req, res, next) => {
   try {
-    const { text, lang = 'hi' } = req.query;
+    const text = req.query.text || req.body?.text;
+    const lang = req.query.lang || req.body?.lang || 'hi';
+    const format = req.query.format || req.body?.format || (req.method === 'POST' ? 'pcm' : 'mp3');
+    const rate = req.query.rate || req.body?.rate || '+15%';
+
     if (!text) {
       return res.status(400).json({ success: false, message: 'text parameter is required' });
     }
 
-    const audioBuffer = await speechService.generateTTS(text, lang);
+    if (format === 'pcm' || format === 'raw') {
+      const pcmBuffer = await speechService.generateTTSPCM(text, lang, rate);
+      res.set({
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': pcmBuffer.length,
+        'X-Audio-Format': 'pcm-u8-16000',
+      });
+      return res.send(pcmBuffer);
+    }
+
+    const audioBuffer = await speechService.generateTTS(text, lang, rate);
     res.set({
       'Content-Type': 'audio/mpeg',
       'Content-Length': audioBuffer.length,

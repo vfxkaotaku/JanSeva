@@ -142,6 +142,37 @@ async function processAudioMessage(audioBuffer, mimeType = 'audio/wav') {
 }
 
 /**
+ * Transcribe speech from audio buffer to clean text.
+ * @param {Buffer} audioBuffer
+ * @param {string} mimeType
+ * @returns {Promise<string>}
+ */
+async function transcribeAudio(audioBuffer, mimeType = 'audio/wav') {
+  if (!model) {
+    throw new Error('Gemini service not initialized. Call initialize() first.');
+  }
+
+  const audioPart = {
+    inlineData: {
+      data: audioBuffer.toString('base64'),
+      mimeType,
+    },
+  };
+
+  const promptText = `Transcribe the spoken speech in this audio recording accurately.
+Return ONLY the exact text spoken in the speaker's language (Hindi, Marathi, English, Gujarati, etc.).
+Do not add prefixes like "The user said" or quotes or explanations. Just return the clean transcribed words.`;
+
+  const result = await model.generateContent([promptText, audioPart]);
+  const response = result.response;
+  if (!response) {
+    throw new Error('Empty transcription from Gemini API');
+  }
+
+  return response.text().trim();
+}
+
+/**
  * Simple health check — validates the API key works.
  */
 async function healthCheck() {
@@ -159,6 +190,8 @@ module.exports = {
   initialize,
   sendMessage,
   processAudioMessage,
+  transcribeAudio,
   healthCheck,
   SYSTEM_PROMPT: JANSEVA_SYSTEM_PROMPT,
 };
+

@@ -120,6 +120,10 @@
         </div>
       </div>
       <div class="chat-header-right">
+        <button class="header-action-btn" id="header-voice-toggle-btn" aria-label="Toggle auto voice response" title="Turn auto voice response on/off">
+          <span id="voice-toggle-icon">🔊</span>
+          <span id="voice-toggle-label">Voice: ON</span>
+        </button>
         <button class="header-action-btn" id="header-hardware-btn" aria-label="Hardware Kiosks">
           <span>📟</span>
           <span>ESP32 Kiosk</span>
@@ -346,6 +350,25 @@
     <button class="device-modal-close" id="device-modal-close" aria-label="Close modal">✕</button>
   </div>
   <div class="device-modal-body">
+    <!-- Live Backend Server Connection Card -->
+    <div class="server-connection-card" id="server-connection-card" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:14px 16px; margin-bottom:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <span style="font-weight:700; font-size:13px; color:#0f172a;">🔗 Live Backend Server & Hardware Sync</span>
+        <span id="backend-status-pill" class="device-status-pill online" style="font-size:11px;">Checking...</span>
+      </div>
+      <p style="font-size:12px; color:#64748b; margin-bottom:10px; line-height:1.4;">
+        Both this webpage and your physical ESP32 kiosk connect to this server to process queries, stream natural AI voice, and sync live data in real time.
+      </p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <input id="custom-backend-input" placeholder="e.g. http://localhost:3000 or https://your-app.onrender.com" style="flex:1; min-width:220px; padding:8px 12px; font-size:12px; border:1px solid #cbd5e1; border-radius:6px;" />
+        <button id="save-backend-btn" class="device-btn" style="background:#0284c7; color:#fff; font-weight:600; padding:8px 14px; border:none; border-radius:6px; cursor:pointer;">💾 Connect</button>
+        <button id="reset-backend-btn" class="device-btn btn-secondary" style="padding:8px 12px; font-size:12px; border-radius:6px; border:1px solid #cbd5e1; cursor:pointer;">↺ Reset</button>
+      </div>
+      <div id="backend-active-url-display" style="margin-top:8px; font-size:11px; color:#475569;">
+        <b>Active Endpoint:</b> <span id="current-backend-url-text" class="code-pill">http://localhost:3000</span>
+      </div>
+    </div>
+
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
       <span style="font-size:13px; color:var(--color-text-muted);">Active hardware devices connected to JANSEVA.AI</span>
       <button class="device-btn" id="refresh-devices-btn">🔄 Refresh</button>
@@ -396,6 +419,8 @@ const state = {
   isLoading: false,
   sidebarOpen: false,
   messages: [],   // { role, content, timestamp, language, id }
+  autoSpeak: true, // Default ON: AI automatically speaks answers aloud!
+  lastWasVoice: false,
 };
 
 // ──────────────────────────────────────────────────────────────
@@ -416,6 +441,11 @@ const overlay        = $('overlay');
 const sidebar        = $('sidebar');
 const convList       = $('conversation-list');
 const toast          = $('toast');
+
+// Auto Voice Toggle DOM
+const voiceToggleBtn  = $('header-voice-toggle-btn');
+const voiceToggleIcon = $('voice-toggle-icon');
+const voiceToggleLabel= $('voice-toggle-label');
 
 // Voice & Microphone DOM
 const micBtn         = $('mic-btn');
@@ -568,6 +598,16 @@ async function sendMessage(text) {
       preview: message.slice(0, 80),
       updatedAt: Date.now(),
     });
+
+    // Speak AI response automatically if autoSpeak is ON or query was spoken via mic!
+    if (state.autoSpeak || state.lastWasVoice) {
+      state.lastWasVoice = false;
+      setTimeout(() => {
+        const allBtns = chatBody.querySelectorAll('.speak-btn');
+        const lastBtn = allBtns[allBtns.length - 1];
+        speakMessage(aiMsg.content, aiMsg.language || state.language, lastBtn);
+      }, 350);
+    }
 
   } catch (err) {
     renderError(err.message || 'Something went wrong. Please try again.');
@@ -929,6 +969,7 @@ function initSpeechRecognition() {
   recognition.onend = () => {
     stopListening();
     if (messageInput.value.trim().length > 0) {
+      state.lastWasVoice = true; // Mark as voice query so answer speaks automatically!
       sendMessage();
     }
   };
@@ -961,70 +1002,156 @@ function stopListening() {
 // ──────────────────────────────────────────────────────────────
 // TEXT-TO-SPEECH (TTS) AUDIO PLAYBACK
 // ──────────────────────────────────────────────────────────────
-async function speakMessage(text, lang = 'hi', btn = null) {
+let currentUtterance = null;
+
+function speakWithWebSpeech(snippet, targetLang, btn) {
+  if (!window.speechSynthesis) return;
+  const utter = new SpeechSynthesisUtterance(snippet);
+  const targetLangCode = SPEECH_LANG_MAP[targetLang] || SPEECH_LANG_MAP[state.language] || 'hi-IN';
+  utter.lang = targetLangCode;
+  utter.rate = 1.08; // Natural, energetic conversational speech rate
+  utter.pitch = 1.0;
+
+  const voices = window.speechSynthesis.getVoices();
+  const prefix = targetLangCode.split('-')[0].toLowerCase();
+  const matchedVoice = voices.find(v => v.lang.toLowerCase().startsWith(prefix) && (v.name.includes('Google') || v.name.includes('Natural') || v.localService))
+    || voices.find(v => v.lang.toLowerCase().startsWith(prefix))
+    || voices.find(v => v.lang.toLowerCase().startsWith('en-in'))
+    || voices.find(v => v.lang.toLowerCase().startsWith('en'));
+
+  if (matchedVoice) utter.voice = matchedVoice;
+
+  utter.onend = () => {
+    if (btn) {
+      btn.classList.remove('playing');
+      btn.innerHTML = '🔊 Speak';
+      btn.dataset.speaking = '';
+    }
+    currentUtterance = null;
+  };
+
+  utter.onerror = (e) => {
+    console.warn('SpeechSynthesis error:', e.error);
+    if (btn) {
+      btn.classList.remove('playing');
+      btn.innerHTML = '🔊 Speak';
+      btn.dataset.speaking = '';
+    }
+    currentUtterance = null;
+  };
+
+  currentUtterance = utter;
+  window.speechSynthesis.resume();
+  setTimeout(() => {
+    window.speechSynthesis.resume();
+    window.speechSynthesis.speak(utter);
+  }, 60);
+}
+
+function speakMessage(text, lang = 'hi', btn = null) {
+  // Stop any existing playback
   if (currentAudio) {
-    currentAudio.pause();
+    try { currentAudio.pause(); } catch(e) {}
     currentAudio = null;
-    document.querySelectorAll('.speak-btn').forEach(b => {
-      b.classList.remove('playing');
-      b.innerHTML = '🔊 Speak';
-    });
-    if (btn && btn.classList.contains('playing')) return;
   }
+  if (window.speechSynthesis) {
+    try { window.speechSynthesis.cancel(); } catch(e) {}
+    currentUtterance = null;
+  }
+  // If same button pressed again while playing → stop
+  document.querySelectorAll('.speak-btn').forEach(b => {
+    b.classList.remove('playing');
+    b.innerHTML = '🔊 Speak';
+    b.dataset.speaking = '';
+  });
+  if (btn && btn.dataset.speaking === '1') {
+    btn.dataset.speaking = '';
+    return;
+  }
+
+  // Clean text from markdown, emojis, asterisks, bullet points for clean speech
+  const cleanText = text
+    .replace(/[*_#`~[\]()]/g, '')
+    .replace(/📋|🎁|✅|🔗|📄|👥|🌾|💳|🏛️|🇮🇳|💡|🚨|⚠️|🔴|🤖/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleanText) return;
+
+  // Speak concise natural snippet
+  const snippet = cleanText.length > 320 ? cleanText.slice(0, 320) + '...' : cleanText;
+  const targetLang = lang || state.language || 'hi';
 
   if (btn) {
     btn.classList.add('playing');
-    btn.innerHTML = '⏸️ Playing...';
+    btn.innerHTML = '⏸️ Stop';
+    btn.dataset.speaking = '1';
   }
 
-  const ttsUrl = apiService.getTTSUrl(text, lang || state.language || 'hi');
+  // Prioritize ultra-natural Backend Neural AI Voice (Azure Swara/Aarohi/Neerja)
+  const ttsUrl = apiService.getTTSUrl(snippet, targetLang);
   const audio = new Audio(ttsUrl);
+  audio.playbackRate = 1.05; // Lively, responsive playback
   currentAudio = audio;
 
   audio.onended = () => {
     if (btn) {
       btn.classList.remove('playing');
       btn.innerHTML = '🔊 Speak';
+      btn.dataset.speaking = '';
     }
     currentAudio = null;
   };
 
-  audio.onerror = () => {
-    // Fallback to browser SpeechSynthesis
-    if (window.speechSynthesis) {
-      const cleanText = text.replace(/[*_#`~[\]()]/g, '').slice(0, 250);
-      const utter = new SpeechSynthesisUtterance(cleanText);
-      utter.lang = SPEECH_LANG_MAP[lang] || 'hi-IN';
-      utter.onend = () => {
-        if (btn) {
-          btn.classList.remove('playing');
-          btn.innerHTML = '🔊 Speak';
-        }
-        currentAudio = null;
-      };
-      window.speechSynthesis.speak(utter);
-    } else {
-      if (btn) {
-        btn.classList.remove('playing');
-        btn.innerHTML = '🔊 Speak';
-      }
-      currentAudio = null;
-    }
+  audio.onerror = (e) => {
+    console.warn('Neural audio stream error, falling back to browser voice:', e);
+    currentAudio = null;
+    speakWithWebSpeech(snippet, targetLang, btn);
   };
 
-  try {
-    await audio.play();
-  } catch (err) {
-    console.warn('Audio playback error:', err);
-    audio.onerror();
-  }
+  audio.play().catch(err => {
+    console.warn('Audio play blocked/failed, falling back to browser voice:', err);
+    currentAudio = null;
+    speakWithWebSpeech(snippet, targetLang, btn);
+  });
 }
 
 // ──────────────────────────────────────────────────────────────
-// HARDWARE DEVICE MANAGEMENT
 // ──────────────────────────────────────────────────────────────
+// HARDWARE DEVICE MANAGEMENT & LIVE SYNC
+// ──────────────────────────────────────────────────────────────
+let devicePollTimer = null;
+
 async function loadHardwareDevices() {
   try {
+    // 1. Update Backend Server status display
+    const activeBackend = apiService.getBackendUrl();
+    const isLive = apiService.isLiveBackend();
+    const customBackendInput = $('custom-backend-input');
+    const backendStatusPill = $('backend-status-pill');
+    const currentBackendUrlText = $('current-backend-url-text');
+    const hintEl = $('local-server-ip-hint');
+
+    if (customBackendInput && !customBackendInput.value && activeBackend) {
+      customBackendInput.value = activeBackend;
+    }
+    if (currentBackendUrlText) {
+      currentBackendUrlText.textContent = activeBackend || 'http://localhost:3000';
+    }
+    if (hintEl) {
+      hintEl.textContent = activeBackend || `http://${window.location.hostname}:3000`;
+    }
+    if (backendStatusPill) {
+      if (isLive) {
+        backendStatusPill.className = 'device-status-pill online';
+        backendStatusPill.textContent = '🟢 Connected & Synced';
+      } else {
+        backendStatusPill.className = 'device-status-pill offline';
+        backendStatusPill.textContent = '🟡 Standalone (No Backend)';
+      }
+    }
+
+    // 2. Fetch devices from Live Backend or Cache
     const res = await apiService.listDevices();
     const devices = res.devices || [];
     const onlineCount = devices.filter(d => d.status === 'online').length;
@@ -1034,7 +1161,7 @@ async function loadHardwareDevices() {
       if (devices.length === 0) {
         deviceListContainer.innerHTML = `
           <div style="text-align:center; padding:20px; color:#64748b; font-size:13px; background:#f8fafc; border-radius:8px;">
-            No ESP32 hardware devices registered yet.<br/>Use the form below to register your first kiosk.
+            No ESP32 hardware devices registered yet.<br/>Use the form below to register your kiosk.
           </div>`;
         return;
       }
@@ -1047,8 +1174,15 @@ async function loadHardwareDevices() {
               <span><b>ID:</b> <span class="code-pill">${dev.id}</span></span>
               <span><b>Loc:</b> ${escapeHtml(dev.location || 'Main Counter')}</span>
               ${dev.ip ? `<span><b>IP:</b> ${dev.ip}</span>` : ''}
-              ${dev.rssi ? `<span><b>WiFi:</b> ${dev.rssi} dBm</span>` : ''}
+              ${dev.rssi ? `<span><b>WiFi:</b> ${dev.rssi} dBm 📶</span>` : ''}
+              ${dev.freeHeap ? `<span><b>Heap:</b> ${(dev.freeHeap / 1024).toFixed(0)} KB</span>` : ''}
             </div>
+            ${dev.logs && dev.logs.length > 0 ? `
+              <div class="device-live-log" style="margin-top:8px; font-size:11px; background:#f1f5f9; padding:6px 10px; border-radius:6px; color:#334155;">
+                <b>⚡ Live Activity:</b> ${escapeHtml(dev.logs[0].message)}
+                <span style="float:right; color:#94a3b8; font-size:10px;">${new Date(dev.logs[0].timestamp).toLocaleTimeString()}</span>
+              </div>
+            ` : ''}
           </div>
           <div class="device-actions">
             <button class="device-btn test-voice-btn" data-dev-id="${dev.id}" data-dev-name="${escapeHtml(dev.name)}">🔊 Test Voice</button>
@@ -1108,13 +1242,17 @@ function openDeviceModal() {
   overlay.setAttribute('aria-hidden', 'false');
   loadHardwareDevices();
 
-  // Set host hint
-  const hintEl = $('local-server-ip-hint');
-  if (hintEl) hintEl.textContent = `http://${window.location.hostname}:3000`;
+  // Auto-refresh devices & live activity every 3.5 seconds while modal is open
+  if (devicePollTimer) clearInterval(devicePollTimer);
+  devicePollTimer = setInterval(loadHardwareDevices, 3500);
 }
 
 function closeDeviceModal() {
   deviceModal.classList.remove('open');
+  if (devicePollTimer) {
+    clearInterval(devicePollTimer);
+    devicePollTimer = null;
+  }
   if (!languagePanel.classList.contains('open')) {
     overlay.classList.remove('open');
     overlay.setAttribute('aria-hidden', 'true');
@@ -1216,12 +1354,64 @@ if (voiceCancelBtn) {
   voiceCancelBtn.addEventListener('click', stopListening);
 }
 
+// Auto-Voice Toggle
+if (voiceToggleBtn) {
+  voiceToggleBtn.addEventListener('click', () => {
+    state.autoSpeak = !state.autoSpeak;
+    if (state.autoSpeak) {
+      if (voiceToggleIcon) voiceToggleIcon.textContent = '🔊';
+      if (voiceToggleLabel) voiceToggleLabel.textContent = 'Voice: ON';
+      voiceToggleBtn.classList.remove('btn-muted');
+      showToast('🔊 Auto Voice: ON (Answers will be spoken aloud)', 'success');
+    } else {
+      if (voiceToggleIcon) voiceToggleIcon.textContent = '🔇';
+      if (voiceToggleLabel) voiceToggleLabel.textContent = 'Voice: OFF';
+      voiceToggleBtn.classList.add('btn-muted');
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      showToast('🔇 Auto Voice: OFF (Muted)', 'info');
+    }
+  });
+}
+
 // Hardware device modal toggles
 if (navHardware) navHardware.addEventListener('click', openDeviceModal);
 if (headerHardwareBtn) headerHardwareBtn.addEventListener('click', openDeviceModal);
 if (deviceModalClose) deviceModalClose.addEventListener('click', closeDeviceModal);
 if (refreshDevicesBtn) refreshDevicesBtn.addEventListener('click', loadHardwareDevices);
 if (registerDeviceBtn) registerDeviceBtn.addEventListener('click', registerNewDevice);
+
+// Live Backend Connection Handlers
+const saveBackendBtn = $('save-backend-btn');
+const resetBackendBtn = $('reset-backend-btn');
+const customBackendInput = $('custom-backend-input');
+
+if (saveBackendBtn) {
+  saveBackendBtn.addEventListener('click', async () => {
+    const url = customBackendInput ? customBackendInput.value.trim() : '';
+    if (!url) {
+      showToast('⚠️ Please enter a Backend Server URL', 'error');
+      return;
+    }
+    apiService.setBackendUrl(url);
+    showToast('🔄 Connecting to backend server...', 'info');
+    try {
+      await apiService.healthCheck();
+      showToast('✅ Connected to Live Backend Server!', 'success');
+    } catch (e) {
+      showToast('⚠️ Saved, but could not reach server. Make sure server is running and CORS is enabled.', 'warning');
+    }
+    loadHardwareDevices();
+  });
+}
+
+if (resetBackendBtn) {
+  resetBackendBtn.addEventListener('click', () => {
+    apiService.setBackendUrl('');
+    if (customBackendInput) customBackendInput.value = '';
+    showToast('↺ Backend reset to default', 'info');
+    loadHardwareDevices();
+  });
+}
 
 // Suggestion cards
 document.querySelectorAll('.suggestion-card').forEach(card => {
@@ -1258,9 +1448,14 @@ $('nav-clear').addEventListener('click', clearCurrentConversation);
 // Sidebar toggle (mobile)
 $('sidebar-toggle').addEventListener('click', toggleSidebar);
 
-// Settings (placeholder)
+// Settings: Configure Gemini API Key
 $('nav-settings').addEventListener('click', () => {
-  showToast('⚙️ Settings coming soon', 'info');
+  const current = localStorage.getItem('janseva_gemini_api_key') || '';
+  const newKey = prompt('🔑 Configure Gemini API Key (Saved in browser LocalStorage):\n\nGet your free key from https://aistudio.google.com/app/apikey', current);
+  if (newKey !== null && newKey.trim()) {
+    localStorage.setItem('janseva_gemini_api_key', newKey.trim());
+    showToast('✅ Gemini API Key saved successfully!', 'success');
+  }
 });
 
 // Keyboard: Escape to close panels
@@ -1288,6 +1483,14 @@ document.addEventListener('click', e => {
 init();
 initSpeechRecognition();
 loadHardwareDevices();
+
+// Pre-load speech synthesis voices (Chrome loads them async)
+if (window.speechSynthesis) {
+  window.speechSynthesis.getVoices();
+  window.speechSynthesis.addEventListener('voiceschanged', () => {
+    window.speechSynthesis.getVoices(); // cache voices
+  });
+}
 </script>
 </body>
 </html>
