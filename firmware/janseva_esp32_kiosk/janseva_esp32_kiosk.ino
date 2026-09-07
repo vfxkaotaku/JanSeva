@@ -167,6 +167,7 @@ String   lastScreenSummary = "";
 String   sttDisplayText    = "";
 String   activeLang        = "hi";
 String   convId            = "";
+String   serialTypedInput  = "";  // Allows typing directly into Serial Monitor as voice fallback
 
 unsigned long lastHeartbeat = 0;
 #define HEARTBEAT_MS 30000
@@ -192,6 +193,8 @@ void sendHeartbeat();
 void runConversationStep(String voiceInput);
 void resetConversation();
 bool containsAny(String haystack, const char* needles[], int count);
+void handleSerialCommand(String cmd);
+void runMicDiagnostic();
 
 // ============================================================================
 // SETUP
@@ -371,6 +374,17 @@ void setup() {
                    "[Ready Standby]");
     delay(1200);
 
+    Serial.println("\n=======================================================");
+    Serial.println("  [KIOSK READY] JANSEVA.AI ESP32 Kiosk v2.0");
+    Serial.println("  [TOUCH SENSOR] Tap touch sensor (GPIO 33) or BOOT button");
+    Serial.println("  [SERIAL CONSOLE] You can also type commands anytime:");
+    Serial.println("    -> 'start' or 'hi'     : Wake up kiosk & begin voice chat");
+    Serial.println("    -> 'mic'               : Test microphone live with VU meter");
+    Serial.println("    -> 'audio'             : Test PAM8403 speaker chime");
+    Serial.println("    -> 'reset'             : Reset WiFi setup portal");
+    Serial.println("    -> Or type any query   : e.g. 'PM Kisan Yojana kya hai'");
+    Serial.println("=======================================================\n");
+
     convStep = STEP_IDLE;
     drawRobotFace(FACE_IDLE, cfg_location.substring(0, 9));
   } else {
@@ -383,16 +397,12 @@ void setup() {
 // LOOP
 // ============================================================================
 void loop() {
-  // Serial command listener (type 'reset' in Serial Monitor at any time to wipe WiFi)
+  // Serial command listener (Full interactive console & text chat)
   if (Serial.available() > 0) {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
-    if (cmd.equalsIgnoreCase("reset") || cmd.equalsIgnoreCase("setup") || cmd.equalsIgnoreCase("portal") || cmd.equalsIgnoreCase("r")) {
-      Serial.println("[CMD] Reset command received! Clearing WiFi and restarting...");
-      prefs.clear();
-      showScreenCard("WIFI RESET", "Clearing settings...\nStarting portal.", "[Resetting]");
-      delay(800);
-      ESP.restart();
+    if (cmd.length() > 0) {
+      handleSerialCommand(cmd);
       return;
     }
   }
@@ -835,15 +845,28 @@ bool recordVoice(int maxSecs) {
   size_t bytesRead = 0;
   unsigned long start  = millis();
   unsigned long limit  = (unsigned long)maxSecs * 1000UL;
+  serialTypedInput = "";
 
   drawRobotFace(FACE_LISTEN, "Boliye!");
-  Serial.printf("[MIC] Listening for %d seconds...\n", maxSecs);
+  Serial.printf("[MIC] Listening for %d seconds... (Speak into mic OR type answer in Serial Monitor)\n", maxSecs);
 
   int maxAmp = 0;
   while (recBytes < (AUDIO_BUF_SZ - WAV_HDR_SZ - 512) &&
          (millis() - start) < limit) {
+
+    // Allow user to type their response directly into Serial Monitor!
+    if (Serial.available() > 0) {
+      String typed = Serial.readStringUntil('\n');
+      typed.trim();
+      if (typed.length() > 0) {
+        serialTypedInput = typed;
+        Serial.println("[SERIAL-INPUT] Captured: " + typed);
+        return true;
+      }
+    }
+
     uint8_t tmp[512];
-    i2s_read(I2S_MIC_PORT, tmp, sizeof(tmp), &bytesRead, portMAX_DELAY);
+    i2s_read(I2S_MIC_PORT, tmp, sizeof(tmp), &bytesRead, 20 / portTICK_PERIOD_MS);
     if (bytesRead > 0) {
       int16_t* s16 = (int16_t*)tmp;
       int sCount = bytesRead / 2;
@@ -859,10 +882,9 @@ bool recordVoice(int maxSecs) {
   Serial.printf("[MIC] Recorded %d bytes. Peak amplitude: %d\n", recBytes, maxAmp);
   if (maxAmp < 100) {
     Serial.println("[MIC] WARNING: Audio is near silence (amplitude < 100)!");
-    Serial.println("[MIC] Please check INMP441 wiring:");
-    Serial.println("[MIC] -> L/R pin MUST be connected to GND (Left channel)");
-    Serial.println("[MIC] -> VDD to 3.3V, GND to GND");
-    Serial.println("[MIC] -> SD to GPIO 32, WS to GPIO 15, SCK to GPIO 14");
+    Serial.println("[MIC] -> Type 'mic' in Serial Monitor to test microphone live.");
+    Serial.println("[MIC] -> Check INMP441 wiring: L/R pin MUST be connected to GND!");
+    Serial.println("[MIC] -> TIP: You can also type your answers/questions in Serial Monitor!");
   }
 
   if (recBytes < 512) return false;
@@ -888,6 +910,15 @@ bool recordVoice(int maxSecs) {
 // SEND AUDIO FOR STT (Speech-to-Text)
 // ============================================================================
 String sendAudioForSTT() {
+  // If user typed the input in Serial Monitor, bypass STT audio upload and use text directly
+  if (serialTypedInput.length() > 0) {
+    String res = serialTypedInput;
+    serialTypedInput = "";
+    sttDisplayText = res;
+    Serial.println("[STT-BYPASS] Using Serial Monitor input: " + res);
+    return res;
+  }
+
   if (WiFi.status() != WL_CONNECTED || recBytes <= WAV_HDR_SZ) return "";
   drawRobotFace(FACE_THINK, "Samajh...");
 
@@ -1489,6 +1520,135 @@ void runConversationStep(String voiceInput) {
       convStep = STEP_IDLE;
       break;
   }
+}
+
+// ============================================================================
+// SERIAL COMMAND HANDLER & INTERACTIVE CONSOLE
+// ============================================================================
+void handleSerialCommand(String cmd) {
+  cmd.trim();
+  if (cmd.length() == 0) return;
+
+  // 1. Reset WiFi / Open Setup Portal
+  if (cmd.equalsIgnoreCase("reset") || cmd.equalsIgnoreCase("setup") || cmd.equalsIgnoreCase("portal") || cmd.equalsIgnoreCase("r")) {
+    Serial.println("[CMD] Reset command received! Clearing WiFi and restarting...");
+    prefs.clear();
+    showScreenCard("WIFI RESET", "Clearing settings...\nStarting portal.", "[Resetting]");
+    delay(800);
+    ESP.restart();
+    return;
+  }
+
+  // 2. Microphone live diagnostic & VU meter
+  if (cmd.equalsIgnoreCase("mic") || cmd.equalsIgnoreCase("mic test") || cmd.equalsIgnoreCase("m")) {
+    runMicDiagnostic();
+    return;
+  }
+
+  // 3. Audio speaker chime test
+  if (cmd.equalsIgnoreCase("audio") || cmd.equalsIgnoreCase("speaker") || cmd.equalsIgnoreCase("chime")) {
+    Serial.println("[CMD] Playing test sound through PAM8403 speaker...");
+    for (int f = 0; f < 200; f++) {
+      dacWrite(PIN_AUDIO_DAC, (f % 16 < 8) ? 200 : 50);
+      delayMicroseconds(500);
+    }
+    delay(50);
+    for (int f = 0; f < 250; f++) {
+      dacWrite(PIN_AUDIO_DAC, (f % 12 < 6) ? 210 : 45);
+      delayMicroseconds(375);
+    }
+    dacWrite(PIN_AUDIO_DAC, 0);
+    Serial.println("[CMD] Audio chime complete!");
+    return;
+  }
+
+  // 4. Wake up conversation (identical to touching TTP223 sensor)
+  if (cmd.equalsIgnoreCase("start") || cmd.equalsIgnoreCase("touch") || cmd.equalsIgnoreCase("wake") || cmd.equalsIgnoreCase("hi") || cmd.equalsIgnoreCase("namaste")) {
+    Serial.println("[CMD] Wake up command received via Serial! Starting kiosk...");
+    playTone(784, 80); delay(20); playTone(1046, 120);
+    resetConversation();
+    convStep = STEP_GREET;
+    runConversationStep("");
+    return;
+  }
+
+  // 5. If kiosk is in active conversation, feed this typed string as the answer to the current step!
+  if (convStep != STEP_IDLE) {
+    Serial.println("[CMD] Answer received for current step: " + cmd);
+    sttDisplayText = cmd;
+    runConversationStep(cmd);
+    return;
+  }
+
+  // 6. Direct citizen question from idle (e.g. user typed "PM Kisan Yojana")
+  Serial.println("[CMD] Direct question received: " + cmd);
+  playTone(880, 80);
+  resetConversation();
+  userName = "Citizen";
+  userPhone = "9999999999";
+  convStep = STEP_GET_PROBLEM;
+  runConversationStep(cmd);
+}
+
+// ============================================================================
+// MICROPHONE LIVE DIAGNOSTIC & VU METER
+// ============================================================================
+void runMicDiagnostic() {
+  Serial.println("\n==========================================");
+  Serial.println("[MIC DIAGNOSTIC] Testing INMP441 Microphone (5s)...");
+  Serial.println("Speak into the mic or tap it now!");
+  Serial.println("==========================================");
+
+  showScreenCard("MIC DIAGNOSTIC", "Testing Mic (5s)...\nSpeak or tap mic\nCheck Serial Mon.", "[Testing Mic]");
+
+  unsigned long start = millis();
+  int overallMax = 0;
+  size_t bytesRead = 0;
+  uint8_t tmp[512];
+
+  while (millis() - start < 5000) {
+    int winMax = 0;
+    for (int b = 0; b < 4; b++) {
+      i2s_read(I2S_MIC_PORT, tmp, sizeof(tmp), &bytesRead, 20 / portTICK_PERIOD_MS);
+      if (bytesRead > 0) {
+        int16_t* s16 = (int16_t*)tmp;
+        int count = bytesRead / 2;
+        for (int i = 0; i < count; i++) {
+          int a = abs(s16[i]);
+          if (a > winMax) winMax = a;
+        }
+      }
+    }
+    if (winMax > overallMax) overallMax = winMax;
+
+    // Print visual bar
+    int bars = min(winMax / 150, 25);
+    Serial.printf("[MIC LEVEL] Amp: %5d | ", winMax);
+    for (int i = 0; i < bars; i++) Serial.print("#");
+    for (int i = bars; i < 25; i++) Serial.print(".");
+    if (winMax > 200) Serial.println(" (SOUND DETECTED!)");
+    else Serial.println(" (silence)");
+    delay(150);
+  }
+
+  Serial.println("------------------------------------------");
+  Serial.printf("[MIC RESULT] Peak Amplitude: %d\n", overallMax);
+  if (overallMax > 200) {
+    Serial.println("[MIC RESULT] SUCCESS! Microphone is working and receiving audio.");
+    showScreenCard("MIC TEST: OK!", "Microphone works!\nAudio detected.\nPeak: " + String(overallMax), "[Test Passed]");
+  } else {
+    Serial.println("[MIC RESULT] FAILED: Audio is near 0 / silence!");
+    Serial.println("[MIC RESULT] Troubleshooting checklist:");
+    Serial.println("  1. Connect INMP441 L/R pin to GND (CRITICAL!)");
+    Serial.println("  2. Connect VDD to 3.3V and GND to GND");
+    Serial.println("  3. Connect SD to GPIO 32");
+    Serial.println("  4. Connect WS to GPIO 15");
+    Serial.println("  5. Connect SCK to GPIO 14");
+    showScreenCard("MIC: SILENT!", "No audio detected!\nCheck L/R pin -> GND\nSD:32, WS:15, SCK:14", "[Check Wiring]");
+  }
+  Serial.println("==========================================\n");
+  delay(2000);
+  drawRobotFace(FACE_IDLE, cfg_location.substring(0, 9));
 }
 
 // ============================================================================
