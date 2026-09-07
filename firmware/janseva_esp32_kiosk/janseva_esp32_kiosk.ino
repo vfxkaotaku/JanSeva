@@ -279,18 +279,19 @@ void setup() {
   cfg_lang     = prefs.getString("deflang",  "hi");
   activeLang   = cfg_lang;
 
-  // Allocate audio buffer (use PSRAM if available)
+  // Allocate audio buffer (use PSRAM if available, or safe block in SRAM)
   audioBuf = (uint8_t*) ps_malloc(AUDIO_BUF_SZ);
-  if (!audioBuf) audioBuf = (uint8_t*) malloc(AUDIO_BUF_SZ);
   if (!audioBuf) {
-    Serial.println("[ERR] Audio buf failed, using 3s fallback");
-    audioBuf = (uint8_t*) malloc(SAMPLE_RATE * 2 * 3 + WAV_HDR_SZ);
+    size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    size_t safeSz = (largest > 40000) ? (largest - 35000) : (SAMPLE_RATE * 2 * 3 + WAV_HDR_SZ);
+    audioBuf = (uint8_t*) malloc(safeSz);
+    Serial.printf("[AUDIO] Allocated %u bytes buffer (largest block: %u)\n", safeSz, largest);
   }
 
   initMicrophone();
 
   // -----------------------------------------------------------------------
-  // PORTAL TRIGGER LOGIC (First boot OR forced by BOOT button / Touch)
+  // PORTAL TRIGGER LOGIC (First boot OR forced by BOOT button)
   // -----------------------------------------------------------------------
   bool forcePortal = false;
 
@@ -299,24 +300,23 @@ void setup() {
     forcePortal = true;
   } else {
     Serial.println("\n[BOOT] Saved WiFi: " + cfg_ssid);
-    Serial.println("[BOOT] Hold BOOT button, touch sensor, or type 'r' in Serial (3s window) for Setup Portal...");
+    Serial.println("[BOOT] Connecting to WiFi (Hold BOOT 2s to open Setup Portal)...");
 
     showScreenCard("JANSEVA AI KIOSK",
-                   "Starting up...\nWiFi: " + cfg_ssid + "\nHold touch for setup",
+                   "Starting up...\nWiFi: " + cfg_ssid + "\nConnecting...",
                    "[Boot Standby]");
 
-    unsigned long promptStart = millis();
-    while (millis() - promptStart < 3000) {
-      if (digitalRead(PIN_BOOT_BTN) == LOW || digitalRead(PIN_TOUCH_SIG) == HIGH || Serial.available() > 0) {
-        while (Serial.available()) Serial.read();
-        Serial.println("[BOOT] Factory Reset triggered! Clearing saved WiFi...");
-        prefs.clear();
-        cfg_ssid = "";
-        cfg_pass = "";
-        forcePortal = true;
-        break;
+    // Check if user is actively holding BOOT button at startup
+    if (digitalRead(PIN_BOOT_BTN) == LOW) {
+      unsigned long btnStart = millis();
+      while (digitalRead(PIN_BOOT_BTN) == LOW) {
+        if (millis() - btnStart > 2000) {
+          Serial.println("[BOOT] BOOT button held! Entering Setup Portal...");
+          forcePortal = true;
+          break;
+        }
+        delay(30);
       }
-      delay(50);
     }
   }
 
@@ -336,17 +336,23 @@ void setup() {
   Serial.print("[WiFi] Connecting to: " + cfg_ssid);
 
   int tries = 0;
-  while (WiFi.status() != WL_CONNECTED && tries < 20) {
+  while (WiFi.status() != WL_CONNECTED && tries < 25) {
     delay(500);
     tries++;
     Serial.print(".");
     if (tries % 2 == 0) drawRobotFace(FACE_THINK, "WiFi...");
 
-    if (digitalRead(PIN_BOOT_BTN) == LOW || digitalRead(PIN_TOUCH_SIG) == HIGH || Serial.available() > 0) {
-      while (Serial.available()) Serial.read();
-      Serial.println("\n[WiFi] Aborted by user. Opening setup portal...");
-      startPortal();
-      return;
+    // Check if user manually holds BOOT button to abort
+    if (digitalRead(PIN_BOOT_BTN) == LOW) {
+      unsigned long abortStart = millis();
+      while (digitalRead(PIN_BOOT_BTN) == LOW) {
+        if (millis() - abortStart > 2000) {
+          Serial.println("\n[WiFi] Aborted by user via BOOT button. Opening setup portal...");
+          startPortal();
+          return;
+        }
+        delay(30);
+      }
     }
   }
 
@@ -368,7 +374,7 @@ void setup() {
     convStep = STEP_IDLE;
     drawRobotFace(FACE_IDLE, cfg_location.substring(0, 9));
   } else {
-    Serial.println("\n[WiFi] Failed. Opening setup portal...");
+    Serial.println("\n[WiFi] Connection timeout. Opening setup portal...");
     startPortal();
   }
 }
@@ -430,39 +436,42 @@ void loop() {
     }
   }
 
-  // TTP223 Touch detection (GPIO 33)
+  // TTP223 Touch detection (GPIO 33) with debounce to eliminate RF glitches
   if (digitalRead(PIN_TOUCH_SIG) == HIGH) {
-    unsigned long touchStart = millis();
-    while (digitalRead(PIN_TOUCH_SIG) == HIGH) {
-      if (millis() - touchStart > 5000) {
-        // 5s long press -> WiFi reset
-        showScreenCard("WIFI RESET", "Clearing settings...\nStarting portal.", "[Resetting]");
-        while (digitalRead(PIN_TOUCH_SIG) == HIGH) delay(50);
-        prefs.clear();
-        ESP.restart();
-        return;
+    delay(40); // 40ms debounce
+    if (digitalRead(PIN_TOUCH_SIG) == HIGH) {
+      unsigned long touchStart = millis();
+      while (digitalRead(PIN_TOUCH_SIG) == HIGH) {
+        if (millis() - touchStart > 5000) {
+          // 5s long press -> WiFi reset
+          showScreenCard("WIFI RESET", "Clearing settings...\nStarting portal.", "[Resetting]");
+          while (digitalRead(PIN_TOUCH_SIG) == HIGH) delay(50);
+          prefs.clear();
+          ESP.restart();
+          return;
+        }
+        delay(30);
       }
-      delay(30);
-    }
-    // Short tap on Touch Sensor:
-    if (convStep == STEP_IDLE) {
-      // Wake up from sleep!
-      playTone(784, 80); delay(20); playTone(1046, 120);
-      resetConversation();
-      convStep = STEP_GREET;
-      runConversationStep("");
-    } else if (convStep == STEP_ASK_MORE || convStep == STEP_SPEAK_SOLUTION) {
-      // Citizen wants to ask another question!
-      playTone(880, 80);
-      convStep = STEP_ASK_PROBLEM;
-      runConversationStep("");
-    } else {
-      // Record and process voice for current step
-      bool got = recordVoice(6);
-      if (got) {
-        String text = sendAudioForSTT();
-        if (text.length() > 0) runConversationStep(text);
-        else speakText((activeLang == "mr") ? "Mala aikayala aale nahi. Krupaya punha bola." : "Mujhe sunai nahi diya. Kripya dobara boliye.", activeLang);
+      // Short tap on Touch Sensor:
+      if (convStep == STEP_IDLE) {
+        // Wake up from sleep!
+        playTone(784, 80); delay(20); playTone(1046, 120);
+        resetConversation();
+        convStep = STEP_GREET;
+        runConversationStep("");
+      } else if (convStep == STEP_ASK_MORE || convStep == STEP_SPEAK_SOLUTION) {
+        // Citizen wants to ask another question!
+        playTone(880, 80);
+        convStep = STEP_ASK_PROBLEM;
+        runConversationStep("");
+      } else {
+        // Record and process voice for current step
+        bool got = recordVoice(6);
+        if (got) {
+          String text = sendAudioForSTT();
+          if (text.length() > 0) runConversationStep(text);
+          else speakText((activeLang == "mr") ? "Mala aikayala aale nahi. Krupaya punha bola." : "Mujhe sunai nahi diya. Kripya dobara boliye.", activeLang);
+        }
       }
     }
   }
