@@ -1,3 +1,5 @@
+import citizenAi from './citizenAi.js';
+
 const IS_STATIC_HOST =
   window.location.hostname.includes('github.io') ||
   window.location.hostname.includes('netlify.app') ||
@@ -54,7 +56,7 @@ function isLiveBackend() {
 
 const DEFAULT_TIMEOUT_MS = 60000;
 
-// High performance Gemini models with generous quota and automatic fallback
+// High performance Gemini models with automatic fallback
 const CANDIDATE_MODELS = [
   'gemini-3.5-flash-lite',
   'gemini-flash-latest',
@@ -69,27 +71,31 @@ CORE RULES:
 3. For schemes: list (1) Key Benefit/Amount, (2) Who is eligible, (3) Official portal/where to apply.`;
 
 /**
- * Get or prompt user for Gemini API Key on Netlify / GitHub Pages (stored in local browser only).
+ * Get client-configured Gemini API Key (stored in local browser Settings only, optional).
+ * NEVER prompts with window.prompt().
  */
 function getClientApiKey() {
-  let key = localStorage.getItem('janseva_gemini_api_key');
-  if (!key) {
-    key = window.prompt('🔑 JANSEVA.AI (Netlify / Static Hosting)\n\nPlease enter your Google Gemini API Key:\n(Saved safely in your browser LocalStorage only)');
-    if (key && key.trim()) {
-      key = key.trim();
-      localStorage.setItem('janseva_gemini_api_key', key);
-    }
-  }
-  return key;
+  return localStorage.getItem('janseva_gemini_api_key') || null;
 }
 
 /**
  * Direct Gemini REST call for Netlify / GitHub Pages static deployment.
+ * Automatically falls back to built-in Citizen AI engine if no key is set or quota is exceeded.
  */
 async function directGeminiChat(message, language = 'auto', conversationId = null) {
   const apiKey = getClientApiKey();
+  
+  // If user has not configured a personal Gemini key, immediately use Free Open-Source Citizen AI
   if (!apiKey) {
-    throw new Error('🔑 Gemini API key is required. Please click Settings (⚙️) to enter your API key.');
+    const result = citizenAi.queryCitizenAi(message, language);
+    return {
+      success: true,
+      reply: result.reply,
+      language: result.language || (language !== 'auto' ? language : 'hi'),
+      conversationId: conversationId || `conv_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      source: 'citizen_ai_engine'
+    };
   }
 
   const langInstruction = language !== 'auto' ? `[Respond in ${language}]\n\n` : '';
@@ -105,7 +111,6 @@ async function directGeminiChat(message, language = 'auto', conversationId = nul
     ]
   };
 
-  let lastError = null;
   for (const modelName of CANDIDATE_MODELS) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
@@ -117,51 +122,37 @@ async function directGeminiChat(message, language = 'auto', conversationId = nul
 
       const data = await response.json();
       if (!response.ok) {
-        const isQuotaOrRateLimit =
-          response.status === 429 ||
-          data.error?.message?.toLowerCase().includes('quota') ||
-          data.error?.message?.toLowerCase().includes('rate limit');
-
-        const isNotFoundOrUnsupported =
-          response.status === 404 ||
-          response.status === 503 ||
-          data.error?.message?.includes('not found') ||
-          data.error?.message?.includes('no longer available');
-
-        if (isQuotaOrRateLimit || isNotFoundOrUnsupported) {
-          console.warn(`Model ${modelName} returned status ${response.status}. Trying next candidate model...`);
-          lastError = new Error(data.error?.message || `Model ${modelName} error (${response.status})`);
-          continue;
-        }
-        throw new Error(data.error?.message || `Gemini error (${response.status})`);
+        console.warn(`Model ${modelName} returned status ${response.status}. Trying next candidate model...`);
+        continue;
       }
 
-      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response';
-      return {
-        success: true,
-        reply,
-        language: language || 'hi',
-        conversationId: conversationId || `conv_${Date.now()}`,
-        timestamp: new Date().toISOString()
-      };
+      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      if (reply) {
+        return {
+          success: true,
+          reply,
+          language: language || 'hi',
+          conversationId: conversationId || `conv_${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          source: 'gemini_direct'
+        };
+      }
     } catch (err) {
-      lastError = err;
-      const isRetryable =
-        err.message?.toLowerCase().includes('quota') ||
-        err.message?.toLowerCase().includes('rate limit') ||
-        err.message?.includes('429') ||
-        err.message?.includes('404') ||
-        err.message?.includes('503') ||
-        err.message?.includes('not found') ||
-        err.message?.includes('no longer available');
-
-      if (!isRetryable) {
-        throw err;
-      }
+      console.warn(`Error querying model ${modelName}:`, err.message);
     }
   }
 
-  throw lastError || new Error('Failed to communicate with Gemini API');
+  // Quota exceeded, invalid key, or network error -> Serve via Citizen AI engine seamlessly!
+  console.warn('Gemini quota reached or invalid key, serving response via Free Citizen AI Engine.');
+  const result = citizenAi.queryCitizenAi(message, language);
+  return {
+    success: true,
+    reply: result.reply,
+    language: result.language || (language !== 'auto' ? language : 'hi'),
+    conversationId: conversationId || `conv_${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    source: 'citizen_ai_engine'
+  };
 }
 
 /**
@@ -182,6 +173,7 @@ async function apiFetch(endpoint, options = {}) {
     const response = await fetch(`${base}${endpoint}`, {
       headers: {
         'Content-Type': 'application/json',
+        'Bypass-Tunnel-Reminder': 'true',
         ...options.headers,
       },
       signal: controller.signal,

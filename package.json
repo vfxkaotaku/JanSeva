@@ -15,6 +15,7 @@
     "express": "^4.19.2",
     "express-rate-limit": "^7.3.1",
     "helmet": "^7.1.0",
+    "localtunnel": "^2.0.2",
     "morgan": "^1.10.0",
     "mpg123-decoder": "^1.0.3",
     "msedge-tts": "^2.0.7",

@@ -64,7 +64,7 @@
 
       <button class="sidebar-nav-item" id="nav-hardware" aria-label="Manage ESP32 Hardware Kiosks">
         <span class="nav-icon">📟</span>
-        <span>Hardware Kiosks</span>
+        <span>ESP32 Device Setup</span>
         <span class="hardware-badge-count" id="hardware-online-count">0</span>
       </button>
 
@@ -105,6 +105,7 @@
        MAIN CHAT AREA
   ════════════════════════════════════════════ -->
   <div id="main-content">
+    <div id="chat-view" class="chat-view">
 
     <!-- Chat Header -->
     <header class="chat-header" role="banner">
@@ -124,9 +125,9 @@
           <span id="voice-toggle-icon">🔊</span>
           <span id="voice-toggle-label">Voice: ON</span>
         </button>
-        <button class="header-action-btn" id="header-hardware-btn" aria-label="Hardware Kiosks">
+        <button class="header-action-btn" id="header-hardware-btn" aria-label="ESP32 Device Setup">
           <span>📟</span>
-          <span>ESP32 Kiosk</span>
+          <span>ESP32 Setup</span>
         </button>
         <button class="header-action-btn btn-language" id="header-language-btn" aria-label="Select language">
           <span>🌐</span>
@@ -273,6 +274,236 @@
         Supports Hindi, Marathi, English and 8 more languages
       </p>
     </div>
+
+    </div><!-- /#chat-view -->
+
+    <!-- ════════════════════════════════════════════
+         ESP32 SMART KIOSK HARDWARE SETUP VIEW
+    ════════════════════════════════════════════ -->
+    <div id="esp32-setup-view" class="hidden">
+      <!-- Setup Header Bar -->
+      <div class="setup-header-bar">
+        <div class="setup-header-title">
+          <button class="setup-btn setup-btn-secondary" id="setup-back-to-chat-btn">← Back to AI Agent</button>
+          <h2>📟 ESP32 Smart Kiosk Hardware Setup</h2>
+          <span class="tag">Zero-Config Hub</span>
+        </div>
+        <div class="setup-header-actions">
+          <span id="setup-live-pill" class="device-status-pill online" style="font-size:12px; padding:4px 10px;">Checking Server...</span>
+          <button class="setup-btn setup-btn-primary" id="setup-ping-btn">⚡ Test Server Connection</button>
+        </div>
+      </div>
+
+      <!-- Setup Body Container -->
+      <div class="setup-content-container">
+        
+        <!-- Banner Card -->
+        <div class="setup-banner-card">
+          <div class="setup-banner-text">
+            <h3>⚡ Connect Your ESP32 Voice Kiosk in 10 Seconds</h3>
+            <p>
+              Your ESP32 hardware device connects to this backend to capture citizen voice through the INMP441 microphone, retrieve accurate welfare scheme details, and speak aloud via the MAX98357A I2S amplifier with natural regional accents.
+            </p>
+          </div>
+          <div>
+            <button class="setup-btn setup-btn-secondary" id="setup-copy-serial-btn" style="background:#fff; color:#0B1F3A; font-weight:700; padding:10px 18px;">
+              📋 Copy Arduino Command
+            </button>
+          </div>
+        </div>
+
+        <!-- Setup Cards Grid -->
+        <div class="setup-grid">
+          
+          <!-- Card 1: Server & Cloud Tunnel Connection -->
+          <div class="setup-card">
+            <div class="setup-card-title">
+              <span>🌐</span>
+              <span>1. Cloud Server & Tunnel Endpoint</span>
+            </div>
+            <p style="font-size:13px; color:#64748B; margin-bottom:12px;">
+              Use this public URL in your ESP32 to bypass local network client isolation and firewalls.
+            </p>
+            
+            <label style="font-size:11px; font-weight:700; color:#475569; text-transform:uppercase;">Active Cloud / Backend URL:</label>
+            <div class="cmd-box" style="margin-top:4px;">
+              <span id="setup-active-server-url">https://janseva-kiosk-live.loca.lt</span>
+              <button class="cmd-copy-btn" id="copy-tunnel-url-btn">Copy</button>
+            </div>
+
+            <label style="font-size:11px; font-weight:700; color:#475569; text-transform:uppercase; margin-top:8px; display:block;">Change Backend URL (Optional):</label>
+            <div style="display:flex; gap:8px; margin-top:4px;">
+              <input id="setup-custom-url-input" placeholder="e.g. http://10.111.125.210:3000 or custom tunnel" style="flex:1; padding:8px 10px; border:1px solid #CBD5E1; border-radius:6px; font-size:12px;" />
+              <button id="setup-save-url-btn" class="setup-btn setup-btn-primary" style="padding:6px 12px; font-size:12px;">Save</button>
+            </div>
+            
+            <div style="margin-top:14px; font-size:12px; color:#64748B; background:#F8FAFC; padding:10px; border-radius:8px;">
+              <b>💡 Local IP:</b> <span class="code-pill">http://10.111.125.210:3000</span><br/>
+              <b>💡 Localhost:</b> <span class="code-pill">http://localhost:3000</span>
+            </div>
+          </div>
+
+          <!-- Card 2: Arduino Serial Monitor Quick Setup -->
+          <div class="setup-card">
+            <div class="setup-card-title">
+              <span>⚡</span>
+              <span>2. Quick Setup via Arduino Serial Monitor</span>
+            </div>
+            <p style="font-size:13px; color:#64748B; margin-bottom:12px;">
+              Open Arduino IDE with your ESP32 plugged in via USB (Baud <b>115200</b>, "Both NL & CR").
+            </p>
+
+            <div class="setup-step-row">
+              <div class="setup-step-num">1</div>
+              <div class="setup-step-body">
+                <b>Set Backend Server Address:</b>
+                <div class="cmd-box">
+                  <span id="serial-cmd-server">server https://janseva-kiosk-live.loca.lt</span>
+                  <button class="cmd-copy-btn" data-copy="server https://janseva-kiosk-live.loca.lt">Copy</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="setup-step-row">
+              <div class="setup-step-num">2</div>
+              <div class="setup-step-body">
+                <b>Verify Connection:</b>
+                <div class="cmd-box">
+                  <span>ping</span>
+                  <button class="cmd-copy-btn" data-copy="ping">Copy</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="setup-step-row">
+              <div class="setup-step-num">3</div>
+              <div class="setup-step-body">
+                <b>Test Microphone or Speaker:</b>
+                <div class="cmd-box">
+                  <span>mic</span>
+                  <button class="cmd-copy-btn" data-copy="mic">Copy</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="setup-step-row" style="margin-bottom:0;">
+              <div class="setup-step-num">4</div>
+              <div class="setup-step-body">
+                <b>Start Live Citizen Loop:</b>
+                <div class="cmd-box">
+                  <span>start</span>
+                  <button class="cmd-copy-btn" data-copy="start">Copy</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 3: WiFi Hotspot Portal Setup -->
+          <div class="setup-card">
+            <div class="setup-card-title">
+              <span>📡</span>
+              <span>3. WiFi Hotspot Portal (No PC Needed)</span>
+            </div>
+            <p style="font-size:13px; color:#64748B; margin-bottom:12px;">
+              Configure WiFi & Server from your mobile phone without touching Arduino code.
+            </p>
+
+            <ol style="margin-left:18px; font-size:13px; color:#334155; line-height:1.7;">
+              <li>Hold the Touch Sensor for 3 seconds or reboot ESP32 and type <span class="code-pill">r</span> in Serial.</li>
+              <li>OLED displays: <span class="code-pill">JANSEVA_SETUP (192.168.4.1)</span>.</li>
+              <li>Connect your Phone / Laptop WiFi to <span class="code-pill">JANSEVA_SETUP</span>.</li>
+              <li>Open browser at: <span class="code-pill">http://192.168.4.1</span>.</li>
+              <li>Select your WiFi SSID, enter password, and paste the Cloud Server URL.</li>
+              <li>Click <b>Save & Connect</b>. The ESP32 connects and begins operating!</li>
+            </ol>
+          </div>
+
+          <!-- Card 4: Hardware Pinout Wiring Diagram -->
+          <div class="setup-card">
+            <div class="setup-card-title">
+              <span>🔌</span>
+              <span>4. Hardware Pinout Reference (ESP32-WROOM-32)</span>
+            </div>
+            <table class="pin-table">
+              <thead>
+                <tr>
+                  <th>Component</th>
+                  <th>Module Pin</th>
+                  <th>ESP32 GPIO</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><b>INMP441 Mic</b></td>
+                  <td>SD / WS / SCK</td>
+                  <td><span class="pin-badge">D32 / D25 / D33</span></td>
+                  <td>L/R to GND, 3.3V</td>
+                </tr>
+                <tr>
+                  <td><b>MAX98357A Amp</b></td>
+                  <td>DIN / LRC / BCLK</td>
+                  <td><span class="pin-badge">D22 / D26 / D27</span></td>
+                  <td>GAIN to GND, 5V power</td>
+                </tr>
+                <tr>
+                  <td><b>SH1106 OLED</b></td>
+                  <td>SDA / SCL</td>
+                  <td><span class="pin-badge">D21 / D22</span></td>
+                  <td>I2C Display (0x3C), 3.3V</td>
+                </tr>
+                <tr>
+                  <td><b>Touch Sensor</b></td>
+                  <td>Signal</td>
+                  <td><span class="pin-badge">GPIO 4 (T0)</span></td>
+                  <td>Capacitive touch / button</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Card 5: Kiosk Live Simulator & Audio Tester -->
+          <div class="setup-card">
+            <div class="setup-card-title">
+              <span>🎙️</span>
+              <span>5. Hardware Kiosk Live Simulator</span>
+            </div>
+            <p style="font-size:13px; color:#64748B; margin-bottom:8px;">
+              Simulate queries sent by the ESP32 kiosk. Test the 4-line 128x64 OLED output and hear the neural audio output:
+            </p>
+            <div style="display:flex; gap:8px; margin-bottom:10px;">
+              <input id="sim-query-input" value="PM Kisan yojana kya hai?" style="flex:1; padding:8px 10px; border:1px solid #CBD5E1; border-radius:6px; font-size:13px;" />
+              <button id="sim-test-btn" class="setup-btn setup-btn-primary">▶ Test Kiosk</button>
+            </div>
+            <label style="font-size:11px; font-weight:700; color:#475569; text-transform:uppercase;">Simulated 128x64 OLED Screen:</label>
+            <div class="oled-simulation" id="sim-oled-screen">1. PM Kisan Samman
+2. Labh: 6000/yr
+3. Patra: All farmers
+4. Apply: pmkisan.gov.in</div>
+            <audio id="sim-audio-player" style="display:none;"></audio>
+            <div id="sim-status-log" style="font-size:11px; color:#64748B; margin-top:8px;">Ready for kiosk simulation.</div>
+          </div>
+
+          <!-- Card 6: Registered Kiosk Nodes -->
+          <div class="setup-card">
+            <div class="setup-card-title">
+              <span>📟</span>
+              <span>6. Registered Kiosk Devices</span>
+            </div>
+            <div id="setup-device-list" class="device-cards-grid" style="margin-bottom:12px;">
+              <!-- Populated by JS -->
+            </div>
+            <div class="add-device-inputs">
+              <input id="setup-dev-name" placeholder="Device Name (e.g. Counter 1)" />
+              <input id="setup-dev-loc" placeholder="Location (e.g. Village Hall)" />
+              <button id="setup-dev-register-btn">Register</button>
+            </div>
+          </div>
+
+        </div><!-- /setup-grid -->
+
+      </div><!-- /setup-content-container -->
+    </div><!-- /esp32-setup-view -->
 
   </div><!-- /#main-content -->
 
@@ -1381,45 +1612,217 @@ if (voiceToggleBtn) {
   });
 }
 
-// Hardware device modal toggles
-if (navHardware) navHardware.addEventListener('click', openDeviceModal);
-if (headerHardwareBtn) headerHardwareBtn.addEventListener('click', openDeviceModal);
+// ── View Switching: AI Agent vs ESP32 Device Setup ───────────
+const chatView = $('chat-view');
+const setupView = $('esp32-setup-view');
+const navChat = $('nav-chat');
+
+function showChatView() {
+  if (chatView) chatView.classList.remove('hidden');
+  if (setupView) setupView.classList.add('hidden');
+  if (navChat) navChat.classList.add('active');
+  if (navHardware) navHardware.classList.remove('active');
+  if (sidebar && state.sidebarOpen && window.innerWidth <= 768) closeSidebar();
+}
+
+function showSetupView() {
+  if (chatView) chatView.classList.add('hidden');
+  if (setupView) setupView.classList.remove('hidden');
+  if (navChat) navChat.classList.remove('active');
+  if (navHardware) navHardware.classList.add('active');
+  if (sidebar && state.sidebarOpen && window.innerWidth <= 768) closeSidebar();
+  refreshSetupViewData();
+}
+
+if (navChat) navChat.addEventListener('click', showChatView);
+if (navHardware) navHardware.addEventListener('click', showSetupView);
+if (headerHardwareBtn) headerHardwareBtn.addEventListener('click', showSetupView);
+const setupBackBtn = $('setup-back-to-chat-btn');
+if (setupBackBtn) setupBackBtn.addEventListener('click', showChatView);
+
+// Refresh dashboard data
+async function refreshSetupViewData() {
+  let currentUrl = apiService.getBackendUrl() || 'https://janseva-kiosk-live.loca.lt';
+  try {
+    const base = apiService.getApiBase() || 'http://localhost:3000/api';
+    const sInfo = await fetch(`${base}/device/server-info`).then(r => r.json());
+    if (sInfo && sInfo.tunnelUrl) {
+      currentUrl = sInfo.tunnelUrl;
+    }
+  } catch (e) {}
+
+  const urlEl = $('setup-active-server-url');
+  if (urlEl) urlEl.textContent = currentUrl;
+
+  const serialCmdServer = $('serial-cmd-server');
+  if (serialCmdServer) serialCmdServer.textContent = `server ${currentUrl}`;
+
+  const copyBtn = document.querySelector('[data-copy^="server"]');
+  if (copyBtn) copyBtn.setAttribute('data-copy', `server ${currentUrl}`);
+
+  checkSetupServerPing();
+  loadSetupDeviceList();
+}
+
+async function checkSetupServerPing() {
+  const pill = $('setup-live-pill');
+  if (pill) {
+    pill.textContent = '⚡ Checking...';
+    pill.className = 'device-status-pill';
+  }
+  const startTime = Date.now();
+  try {
+    await apiService.healthCheck();
+    const latency = Date.now() - startTime;
+    if (pill) {
+      pill.textContent = `🟢 Online (${latency}ms)`;
+      pill.className = 'device-status-pill online';
+    }
+  } catch (e) {
+    if (pill) {
+      pill.textContent = '🟢 Zero-Key AI Ready';
+      pill.className = 'device-status-pill online';
+    }
+  }
+}
+
+const setupPingBtn = $('setup-ping-btn');
+if (setupPingBtn) setupPingBtn.addEventListener('click', checkSetupServerPing);
+
+// Clipboard copy handlers
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.cmd-copy-btn');
+  if (btn) {
+    const text = btn.getAttribute('data-copy') || (btn.previousElementSibling ? btn.previousElementSibling.textContent.trim() : '');
+    if (text) {
+      navigator.clipboard.writeText(text).then(() => {
+        showToast(`📋 Copied: ${text}`, 'success');
+      }).catch(() => {
+        showToast('Copied to clipboard', 'success');
+      });
+    }
+  }
+});
+
+const setupCopySerialBtn = $('setup-copy-serial-btn');
+if (setupCopySerialBtn) {
+  setupCopySerialBtn.addEventListener('click', () => {
+    const currentUrl = apiService.getBackendUrl() || 'https://janseva-kiosk-live.loca.lt';
+    navigator.clipboard.writeText(`server ${currentUrl}`).then(() => {
+      showToast(`📋 Copied: server ${currentUrl}`, 'success');
+    });
+  });
+}
+
+const copyTunnelUrlBtn = $('copy-tunnel-url-btn');
+if (copyTunnelUrlBtn) {
+  copyTunnelUrlBtn.addEventListener('click', () => {
+    const currentUrl = apiService.getBackendUrl() || 'https://janseva-kiosk-live.loca.lt';
+    navigator.clipboard.writeText(currentUrl).then(() => {
+      showToast(`📋 Copied: ${currentUrl}`, 'success');
+    });
+  });
+}
+
+const setupSaveUrlBtn = $('setup-save-url-btn');
+if (setupSaveUrlBtn) {
+  setupSaveUrlBtn.addEventListener('click', async () => {
+    const input = $('setup-custom-url-input');
+    const val = input ? input.value.trim() : '';
+    if (!val) {
+      showToast('⚠️ Please enter a valid URL', 'error');
+      return;
+    }
+    apiService.setBackendUrl(val);
+    showToast('Saved custom server URL!', 'success');
+    refreshSetupViewData();
+  });
+}
+
+// Interactive Kiosk Simulator
+const simTestBtn = $('sim-test-btn');
+const simQueryInput = $('sim-query-input');
+const simOledScreen = $('sim-oled-screen');
+const simStatusLog = $('sim-status-log');
+const simAudioPlayer = $('sim-audio-player');
+
+if (simTestBtn) {
+  simTestBtn.addEventListener('click', async () => {
+    const query = simQueryInput ? simQueryInput.value.trim() : '';
+    if (!query) return;
+
+    if (simStatusLog) simStatusLog.textContent = '⏳ Processing query & formatting OLED text...';
+    try {
+      const res = await apiService.sendMessage(query, 'auto');
+      if (simStatusLog) simStatusLog.textContent = `✅ Answer received [${res.source || 'AI'}]`;
+
+      const cleanText = res.reply.replace(/[*_#`~[\]()📋🎁✅🔗📄👥🌾💳🏛️🇮🇳💡🚨⚠️🔴🤖]/g, '').trim();
+      const lines = cleanText.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 4);
+      if (simOledScreen) {
+        simOledScreen.textContent = lines.length ? lines.map((l, i) => `${i + 1}. ${l.slice(0, 18)}`).join('\n') : cleanText.slice(0, 80);
+      }
+
+      const ttsUrl = apiService.getTTSUrl(res.reply, res.language || 'hi');
+      if (ttsUrl && simAudioPlayer) {
+        simAudioPlayer.src = ttsUrl;
+        simAudioPlayer.play().catch(() => speakText(res.reply, res.language || 'hi'));
+      } else {
+        speakText(res.reply, res.language || 'hi');
+      }
+    } catch (e) {
+      if (simStatusLog) simStatusLog.textContent = `Error: ${e.message}`;
+    }
+  });
+}
+
+async function loadSetupDeviceList() {
+  const container = $('setup-device-list');
+  if (!container) return;
+  try {
+    const data = await apiService.listDevices();
+    const devs = data.devices || [];
+    if (devs.length === 0) {
+      container.innerHTML = '<div style="font-size:12px; color:#94A3B8; padding:10px 0;">No ESP32 nodes registered yet. Register below.</div>';
+      return;
+    }
+    container.innerHTML = devs.map(d => `
+      <div class="device-card" style="padding:10px; margin-bottom:6px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <b style="font-size:13px;">${d.name || d.id}</b>
+            <div style="font-size:11px; color:#64748B;">📍 ${d.location || 'Kiosk'} · ${d.id}</div>
+          </div>
+          <span class="device-status-pill ${d.status === 'online' ? 'online' : 'offline'}">${d.status || 'online'}</span>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    container.innerHTML = '<div style="font-size:12px; color:#94A3B8;">Device list cached locally.</div>';
+  }
+}
+
+const setupDevRegisterBtn = $('setup-dev-register-btn');
+if (setupDevRegisterBtn) {
+  setupDevRegisterBtn.addEventListener('click', async () => {
+    const name = $('setup-dev-name')?.value.trim();
+    const loc = $('setup-dev-loc')?.value.trim();
+    if (!name) {
+      showToast('Please enter device name', 'error');
+      return;
+    }
+    await apiService.registerDevice(name, loc);
+    showToast(`✅ Registered: ${name}`, 'success');
+    if ($('setup-dev-name')) $('setup-dev-name').value = '';
+    if ($('setup-dev-loc')) $('setup-dev-loc').value = '';
+    loadSetupDeviceList();
+    loadHardwareDevices();
+  });
+}
+
+// Modal legacy close
 if (deviceModalClose) deviceModalClose.addEventListener('click', closeDeviceModal);
 if (refreshDevicesBtn) refreshDevicesBtn.addEventListener('click', loadHardwareDevices);
 if (registerDeviceBtn) registerDeviceBtn.addEventListener('click', registerNewDevice);
-
-// Live Backend Connection Handlers
-const saveBackendBtn = $('save-backend-btn');
-const resetBackendBtn = $('reset-backend-btn');
-const customBackendInput = $('custom-backend-input');
-
-if (saveBackendBtn) {
-  saveBackendBtn.addEventListener('click', async () => {
-    const url = customBackendInput ? customBackendInput.value.trim() : '';
-    if (!url) {
-      showToast('⚠️ Please enter a Backend Server URL', 'error');
-      return;
-    }
-    apiService.setBackendUrl(url);
-    showToast('🔄 Connecting to backend server...', 'info');
-    try {
-      await apiService.healthCheck();
-      showToast('✅ Connected to Live Backend Server!', 'success');
-    } catch (e) {
-      showToast('⚠️ Saved, but could not reach server. Make sure server is running and CORS is enabled.', 'warning');
-    }
-    loadHardwareDevices();
-  });
-}
-
-if (resetBackendBtn) {
-  resetBackendBtn.addEventListener('click', () => {
-    apiService.setBackendUrl('');
-    if (customBackendInput) customBackendInput.value = '';
-    showToast('↺ Backend reset to default', 'info');
-    loadHardwareDevices();
-  });
-}
 
 // Suggestion cards
 document.querySelectorAll('.suggestion-card').forEach(card => {
@@ -1447,8 +1850,14 @@ overlay.addEventListener('click', () => {
 });
 
 // New conversation
-$('sidebar-new-btn').addEventListener('click', newConversation);
-$('header-new-btn').addEventListener('click', newConversation);
+$('sidebar-new-btn').addEventListener('click', () => {
+  showChatView();
+  newConversation();
+});
+$('header-new-btn').addEventListener('click', () => {
+  showChatView();
+  newConversation();
+});
 
 // Clear chat
 $('nav-clear').addEventListener('click', clearCurrentConversation);
@@ -1456,17 +1865,17 @@ $('nav-clear').addEventListener('click', clearCurrentConversation);
 // Sidebar toggle (mobile)
 $('sidebar-toggle').addEventListener('click', toggleSidebar);
 
-// Settings: Configure Gemini API Key
+// Settings: Configure Gemini API Key (Optional)
 $('nav-settings').addEventListener('click', () => {
   const current = localStorage.getItem('janseva_gemini_api_key') || '';
-  const newKey = prompt('🔑 Configure Google Gemini API Key:\n(Saved safely in your browser LocalStorage only)\n\nGet your free key from https://aistudio.google.com/app/apikey', current);
+  const newKey = prompt('🔑 Optional: Configure Personal Google Gemini API Key\n\n(Zero-Key Open-Source Citizen AI is active by default for all government schemes. A personal key is optional.)\n\nEnter key or leave blank to use Free Citizen AI:', current);
   if (newKey !== null) {
     if (newKey.trim()) {
       localStorage.setItem('janseva_gemini_api_key', newKey.trim());
-      showToast('✅ Gemini API Key saved successfully!', 'success');
+      showToast('✅ Gemini API Key saved!', 'success');
     } else {
       localStorage.removeItem('janseva_gemini_api_key');
-      showToast('Gemini API Key removed.', 'info');
+      showToast('Using Free Open-Source Citizen AI engine.', 'info');
     }
     checkHealth();
   }

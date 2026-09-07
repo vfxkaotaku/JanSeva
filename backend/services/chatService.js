@@ -10,6 +10,7 @@
 const geminiService   = require('./geminiService');
 const languageService = require('./languageService');
 const conversationService = require('./conversationService');
+const citizenAi = require('./citizenAi');
 
 /**
  * Process a chat message through the full pipeline.
@@ -40,8 +41,17 @@ async function processMessage({ message, language = 'auto', conversationId = nul
   // ── 4. Get conversation history for Gemini ────────────────────────────────
   const history = conversationService.getGeminiHistory(convId);
 
-  // ── 5. Call Gemini ────────────────────────────────────────────────────────
-  const aiReply = await geminiService.sendMessage(trimmedMessage, history, langInstruction);
+  // ── 5. Call Gemini with Open-Source Citizen AI Fallback ───────────────────
+  let aiReply;
+  let source = 'gemini';
+  try {
+    aiReply = await geminiService.sendMessage(trimmedMessage, history, langInstruction);
+  } catch (geminiErr) {
+    console.warn(`[Gemini Engine: ${geminiErr.message}] -> Serving via Citizen AI Engine`);
+    const fallback = citizenAi.queryCitizenAi(trimmedMessage, resolvedLang);
+    aiReply = fallback.reply;
+    source = 'citizen_ai_engine';
+  }
 
   // ── 6. Save both user message and AI response to history on success ────────
   conversationService.appendMessage(convId, 'user', trimmedMessage, resolvedLang);
@@ -58,6 +68,7 @@ async function processMessage({ message, language = 'auto', conversationId = nul
     language: resolvedLang,
     conversationId: convId,
     timestamp: new Date().toISOString(),
+    source,
   };
 }
 

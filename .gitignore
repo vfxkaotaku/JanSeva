@@ -4,6 +4,7 @@ node_modules/
 # Environment secrets — NEVER commit!
 .env
 .devices.json
+tunnel_url.txt
 
 # Logs
 *.log
