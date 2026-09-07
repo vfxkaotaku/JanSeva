@@ -1,0 +1,1293 @@
+<!DOCTYPE html>
+<html lang="hi" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+
+  <!-- SEO & Identity -->
+  <title>JANSEVA.AI — AI-Powered Citizen Service Assistant</title>
+  <meta name="description" content="JANSEVA.AI is an AI-powered multilingual citizen-service assistant powered by Google Gemini. Get help with government schemes, welfare programs, and citizen services in Hindi, Marathi, English, and 8 more Indian languages." />
+  <meta name="keywords" content="janseva ai, government schemes, sarkari yojana, citizen service, hindi ai, multilingual chatbot, gemini ai india" />
+  <meta name="author" content="VKO Studios" />
+  <meta name="theme-color" content="#0B1F3A" />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="JANSEVA.AI — AI Citizen Service Assistant" />
+  <meta property="og:description" content="Get help with government schemes in your language — Hindi, Marathi, English, and 8 more Indian languages." />
+  <meta property="og:type" content="website" />
+
+  <!-- Favicon (emoji fallback) -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🇮🇳</text></svg>" />
+
+  <!-- Fonts & CSS -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="styles/main.css" />
+</head>
+<body>
+
+<!-- ── India Flag Strip at very top ─────────────────────────── -->
+<div class="flag-strip" aria-hidden="true"></div>
+
+<!-- ── Main App ─────────────────────────────────────────────── -->
+<div id="app" role="main">
+
+  <!-- ════════════════════════════════════════════
+       SIDEBAR
+  ════════════════════════════════════════════ -->
+  <aside id="sidebar" role="complementary" aria-label="Navigation sidebar">
+
+    <!-- Logo -->
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-icon" aria-hidden="true">🇮🇳</div>
+      <div class="sidebar-logo-text">
+        <h1>JANSEVA.AI</h1>
+        <span>AI-Powered Citizen Service Assistant</span>
+      </div>
+    </div>
+
+    <!-- New Conversation -->
+    <button class="sidebar-new-btn" id="sidebar-new-btn" aria-label="Start new conversation">
+      <span>✚</span>
+      <span>New Conversation</span>
+    </button>
+
+    <!-- Navigation -->
+    <nav class="sidebar-nav" aria-label="Main navigation">
+      <div class="sidebar-nav-label">Menu</div>
+
+      <button class="sidebar-nav-item active" id="nav-chat" data-view="chat" aria-current="page">
+        <span class="nav-icon">💬</span>
+        <span>AI Agent</span>
+      </button>
+
+      <button class="sidebar-nav-item" id="nav-hardware" aria-label="Manage ESP32 Hardware Kiosks">
+        <span class="nav-icon">📟</span>
+        <span>Hardware Kiosks</span>
+        <span class="hardware-badge-count" id="hardware-online-count">0</span>
+      </button>
+
+      <button class="sidebar-nav-item" id="nav-language" aria-label="Open language selector">
+        <span class="nav-icon">🌐</span>
+        <span>Language</span>
+      </button>
+
+      <button class="sidebar-nav-item" id="nav-clear">
+        <span class="nav-icon">🗑️</span>
+        <span>Clear Chat</span>
+      </button>
+
+      <button class="sidebar-nav-item" id="nav-settings">
+        <span class="nav-icon">⚙️</span>
+        <span>Settings</span>
+      </button>
+    </nav>
+
+    <!-- Recent Conversations -->
+    <div class="sidebar-nav">
+      <div class="sidebar-nav-label">Recent Conversations</div>
+    </div>
+    <div class="conversation-list" id="conversation-list" aria-label="Recent conversations">
+      <!-- Populated by JS -->
+    </div>
+
+    <!-- Footer -->
+    <div class="sidebar-footer">
+      <div class="sidebar-footer-badge">
+        <div class="gemini-dot" aria-hidden="true"></div>
+        <span>Powered by Google Gemini</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ════════════════════════════════════════════
+       MAIN CHAT AREA
+  ════════════════════════════════════════════ -->
+  <div id="main-content">
+
+    <!-- Chat Header -->
+    <header class="chat-header" role="banner">
+      <div class="chat-header-left">
+        <button class="header-menu-btn" id="sidebar-toggle" aria-label="Toggle sidebar" aria-expanded="false">☰</button>
+        <div class="chat-header-avatar" aria-hidden="true">🤖</div>
+        <div class="chat-header-info">
+          <h2>JANSEVA.AI Assistant</h2>
+          <div class="ai-status" id="ai-status" role="status" aria-live="polite">
+            <div class="status-dot" id="status-dot"></div>
+            <span id="status-text">AI Online</span>
+          </div>
+        </div>
+      </div>
+      <div class="chat-header-right">
+        <button class="header-action-btn" id="header-hardware-btn" aria-label="Hardware Kiosks">
+          <span>📟</span>
+          <span>ESP32 Kiosk</span>
+        </button>
+        <button class="header-action-btn btn-language" id="header-language-btn" aria-label="Select language">
+          <span>🌐</span>
+          <span id="current-lang-label">Auto Detect</span>
+        </button>
+        <button class="header-action-btn btn-new" id="header-new-btn" aria-label="New conversation">
+          <span>✚</span>
+          <span>New Chat</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Chat Body -->
+    <div id="chat-body" role="log" aria-live="polite" aria-label="Chat messages">
+
+      <!-- Welcome Screen (shown when no messages) -->
+      <div id="welcome-screen">
+        <div class="welcome-logo" aria-hidden="true">🤖</div>
+        <h2 class="welcome-title">नमस्ते! मैं JANSEVA.AI हूँ</h2>
+        <p class="welcome-subtitle">
+          आपकी सरकारी योजनाओं और नागरिक सेवाओं के बारे में जानकारी देने के लिए यहाँ हूँ。<br/>
+          <em>I help citizens access government services in their language.</em>
+        </p>
+
+        <!-- Language Badges -->
+        <div class="welcome-langs" aria-label="Supported languages">
+          <span class="lang-badge">हिंदी</span>
+          <span class="lang-badge">मराठी</span>
+          <span class="lang-badge">English</span>
+          <span class="lang-badge">ગુજરાતી</span>
+          <span class="lang-badge">বাংলা</span>
+          <span class="lang-badge">தமிழ்</span>
+          <span class="lang-badge">తెలుగు</span>
+          <span class="lang-badge">ಕನ್ನಡ</span>
+          <span class="lang-badge">മലയാളം</span>
+          <span class="lang-badge">ਪੰਜਾਬੀ</span>
+          <span class="lang-badge">اردو</span>
+        </div>
+
+        <p class="welcome-prompt">आप क्या जानना चाहते हैं? / What would you like to know?</p>
+
+        <!-- Suggestion Cards -->
+        <div class="suggestions-grid" role="list" aria-label="Suggested topics">
+          <button class="suggestion-card" role="listitem"
+            data-message="शेतकऱ्यांसाठी उपलब्ध सरकारी योजना कोणत्या आहेत? विशेषतः महाराष्ट्रातील शेतकऱ्यांसाठी."
+            aria-label="Ask about Maharashtra farmer schemes in Marathi">
+            <span class="suggestion-emoji">🌾</span>
+            <span class="suggestion-text">शेतकरी योजना</span>
+            <span class="suggestion-sub">PM-Kisan, नमो शेतकरी, पीक विमा</span>
+          </button>
+
+          <button class="suggestion-card" role="listitem"
+            data-message="विद्यार्थ्यांसाठी सरकारी शिष्यवृत्ती आणि शैक्षणिक योजना कोणत्या आहेत?"
+            aria-label="Ask about student schemes">
+            <span class="suggestion-emoji">🎓</span>
+            <span class="suggestion-text">विद्यार्थ्यांसाठी योजना</span>
+            <span class="suggestion-sub">Education & scholarship schemes</span>
+          </button>
+
+          <button class="suggestion-card" role="listitem"
+            data-message="महिलांसाठी कोणत्या सरकारी योजना उपलब्ध आहेत? जसे लाडकी बहीण योजना आणि इतर."
+            aria-label="Ask about women welfare schemes in Marathi">
+            <span class="suggestion-emoji">👩</span>
+            <span class="suggestion-text">महिला योजना</span>
+            <span class="suggestion-sub">लाडकी बहीण, सुकन्या समृद्धी</span>
+          </button>
+
+          <button class="suggestion-card" role="listitem"
+            data-message="Pradhan Mantri Awas Yojana ke baare mein batao. Ghar ke liye kaise apply karein?"
+            aria-label="Ask about housing schemes">
+            <span class="suggestion-emoji">🏠</span>
+            <span class="suggestion-text">घरकुल योजना</span>
+            <span class="suggestion-sub">Housing & Awas Yojana</span>
+          </button>
+
+          <button class="suggestion-card" role="listitem"
+            data-message="रोजगार के लिए सरकारी योजनाएं क्या हैं? मुद्रा लोन और अन्य स्वरोजगार योजनाएं बताएं।"
+            aria-label="Ask about employment schemes">
+            <span class="suggestion-emoji">💼</span>
+            <span class="suggestion-text">रोजगार योजना</span>
+            <span class="suggestion-sub">Employment & MUDRA schemes</span>
+          </button>
+
+          <button class="suggestion-card" role="listitem"
+            data-message="Ayushman Bharat yojana kya hai? Iske labh aur patrta kya hai?"
+            aria-label="Ask about health schemes">
+            <span class="suggestion-emoji">🏥</span>
+            <span class="suggestion-text">आरोग्य योजना</span>
+            <span class="suggestion-sub">Ayushman Bharat & health</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Messages will be injected here by JS -->
+
+      <!-- Typing Indicator -->
+      <div id="typing-indicator" aria-label="AI is typing" role="status">
+        <div class="typing-bubble" aria-hidden="true">
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+        </div>
+        <span style="font-size:12px; color: var(--color-text-muted); padding-top:4px;">JANSEVA.AI is thinking…</span>
+      </div>
+
+    </div><!-- /#chat-body -->
+
+    <!-- Chat Input Area -->
+    <div class="chat-input-area" role="form" aria-label="Chat input">
+      <!-- Voice Status Banner -->
+      <div class="voice-status-bar" id="voice-status-bar">
+        <div class="voice-wave">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <span id="voice-status-text">🎙️ Listening... Speak your question</span>
+        <button id="voice-cancel-btn" style="background:none;border:none;color:#dc2626;cursor:pointer;font-weight:bold;">✕ Stop</button>
+      </div>
+
+      <div class="chat-input-wrapper">
+        <button class="mic-btn" id="mic-btn" aria-label="Voice input (Speak)" title="Click to speak your question in any language">
+          🎙️
+        </button>
+        <textarea
+          id="message-input"
+          rows="1"
+          maxlength="5000"
+          placeholder="अपना प्रश्न यहाँ लिखें... / Type your question here..."
+          aria-label="Type your message"
+          aria-multiline="true"
+          autocomplete="off"
+          spellcheck="true"
+        ></textarea>
+        <div class="input-actions">
+          <button id="send-btn" aria-label="Send message" title="Send (Enter)">
+            <!-- Send Icon -->
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <p class="input-hint">
+        <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line ·
+        Supports Hindi, Marathi, English and 8 more languages
+      </p>
+    </div>
+
+  </div><!-- /#main-content -->
+
+</div><!-- /#app -->
+
+<!-- ════════════════════════════════════════════
+     LANGUAGE PANEL MODAL
+════════════════════════════════════════════ -->
+<div id="overlay" id="modal-overlay" aria-hidden="true" role="presentation"></div>
+
+<div id="language-panel" role="dialog" aria-modal="true" aria-labelledby="lang-panel-title">
+  <div class="panel-header">
+    <h3 id="lang-panel-title">🌐 Select Language</h3>
+    <button class="panel-close" id="lang-panel-close" aria-label="Close language panel">✕</button>
+  </div>
+  <p style="font-size:13px; color:var(--color-text-muted); margin-bottom:16px;">
+    Choose a language for the AI to respond in. Select <strong>Auto Detect</strong> to let the AI match your language automatically.
+  </p>
+  <div class="language-options" role="radiogroup" aria-label="Language options">
+    <button class="lang-option selected" data-lang="auto" role="radio" aria-checked="true">
+      <span class="lang-option-name">Auto</span>
+      <span class="lang-option-native">🔮 Detect</span>
+    </button>
+    <button class="lang-option" data-lang="hi" role="radio" aria-checked="false">
+      <span class="lang-option-name">Hindi</span>
+      <span class="lang-option-native">हिंदी</span>
+    </button>
+    <button class="lang-option" data-lang="mr" role="radio" aria-checked="false">
+      <span class="lang-option-name">Marathi</span>
+      <span class="lang-option-native">मराठी</span>
+    </button>
+    <button class="lang-option" data-lang="en" role="radio" aria-checked="false">
+      <span class="lang-option-name">English</span>
+      <span class="lang-option-native">English</span>
+    </button>
+    <button class="lang-option" data-lang="gu" role="radio" aria-checked="false">
+      <span class="lang-option-name">Gujarati</span>
+      <span class="lang-option-native">ગુજરાતી</span>
+    </button>
+    <button class="lang-option" data-lang="bn" role="radio" aria-checked="false">
+      <span class="lang-option-name">Bengali</span>
+      <span class="lang-option-native">বাংলা</span>
+    </button>
+    <button class="lang-option" data-lang="ta" role="radio" aria-checked="false">
+      <span class="lang-option-name">Tamil</span>
+      <span class="lang-option-native">தமிழ்</span>
+    </button>
+    <button class="lang-option" data-lang="te" role="radio" aria-checked="false">
+      <span class="lang-option-name">Telugu</span>
+      <span class="lang-option-native">తెలుగు</span>
+    </button>
+    <button class="lang-option" data-lang="kn" role="radio" aria-checked="false">
+      <span class="lang-option-name">Kannada</span>
+      <span class="lang-option-native">ಕನ್ನಡ</span>
+    </button>
+    <button class="lang-option" data-lang="ml" role="radio" aria-checked="false">
+      <span class="lang-option-name">Malayalam</span>
+      <span class="lang-option-native">മലയാളം</span>
+    </button>
+    <button class="lang-option" data-lang="pa" role="radio" aria-checked="false">
+      <span class="lang-option-name">Punjabi</span>
+      <span class="lang-option-native">ਪੰਜਾਬੀ</span>
+    </button>
+    <button class="lang-option" data-lang="ur" role="radio" aria-checked="false">
+      <span class="lang-option-name">Urdu</span>
+      <span class="lang-option-native">اردو</span>
+    </button>
+  </div>
+<!-- ════════════════════════════════════════════
+     HARDWARE DEVICE MODAL
+════════════════════════════════════════════ -->
+<div id="device-modal" role="dialog" aria-modal="true" aria-labelledby="device-modal-title">
+  <div class="device-modal-header">
+    <h3 id="device-modal-title">📟 ESP32 Hardware Kiosks</h3>
+    <button class="device-modal-close" id="device-modal-close" aria-label="Close modal">✕</button>
+  </div>
+  <div class="device-modal-body">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+      <span style="font-size:13px; color:var(--color-text-muted);">Active hardware devices connected to JANSEVA.AI</span>
+      <button class="device-btn" id="refresh-devices-btn">🔄 Refresh</button>
+    </div>
+    
+    <div class="device-cards-grid" id="device-list-container">
+      <!-- Populated by JS -->
+    </div>
+    
+    <div class="add-device-box">
+      <h4>✚ Add / Setup New ESP32 Hardware Device</h4>
+      <div class="add-device-inputs">
+        <input id="new-device-name" placeholder="Device Name (e.g. Counter 1)" />
+        <input id="new-device-loc" placeholder="Location (e.g. Village Hall)" />
+        <button id="register-device-btn">Register</button>
+      </div>
+      
+      <div class="setup-instructions-box" id="device-setup-guide">
+        <b>📡 ESP32 First Wakeup & WiFi Setup Instructions:</b>
+        <ol>
+          <li>Power on ESP32 or hold touch sensor for 5 seconds.</li>
+          <li>Connect phone/PC to WiFi: <span class="code-pill">JANSEVA_SETUP_AP</span></li>
+          <li>Open browser at: <span class="code-pill">http://192.168.4.1</span></li>
+          <li>Enter your Home WiFi SSID, Password & Server URL: <span class="code-pill" id="local-server-ip-hint">http://localhost:3000</span></li>
+          <li>Click <b>Save & Connect</b>. The OLED will show "JANSEVA.AI Ready".</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Toast ──────────────────────────────────────────────── -->
+<div id="toast" role="alert" aria-live="assertive"></div>
+
+<!-- ════════════════════════════════════════════
+     MAIN APPLICATION SCRIPT (ES Modules)
+════════════════════════════════════════════ -->
+<script type="module">
+import apiService from './services/api.js';
+import storage    from './services/storage.js';
+
+// ──────────────────────────────────────────────────────────────
+// STATE
+// ──────────────────────────────────────────────────────────────
+const state = {
+  conversationId: null,
+  language: 'auto',
+  isLoading: false,
+  sidebarOpen: false,
+  messages: [],   // { role, content, timestamp, language, id }
+};
+
+// ──────────────────────────────────────────────────────────────
+// DOM REFERENCES
+// ──────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const chatBody       = $('chat-body');
+const messageInput   = $('message-input');
+const sendBtn        = $('send-btn');
+const typingIndicator= $('typing-indicator');
+const welcomeScreen  = $('welcome-screen');
+const aiStatus       = $('ai-status');
+const statusDot      = $('status-dot');
+const statusText     = $('status-text');
+const currentLangLabel = $('current-lang-label');
+const languagePanel  = $('language-panel');
+const overlay        = $('overlay');
+const sidebar        = $('sidebar');
+const convList       = $('conversation-list');
+const toast          = $('toast');
+
+// Voice & Microphone DOM
+const micBtn         = $('mic-btn');
+const voiceStatusBar = $('voice-status-bar');
+const voiceStatusText= $('voice-status-text');
+const voiceCancelBtn = $('voice-cancel-btn');
+
+// Hardware Device Modal DOM
+const deviceModal    = $('device-modal');
+const deviceModalClose = $('device-modal-close');
+const navHardware    = $('nav-hardware');
+const headerHardwareBtn = $('header-hardware-btn');
+const deviceListContainer = $('device-list-container');
+const registerDeviceBtn = $('register-device-btn');
+const newDeviceName  = $('new-device-name');
+const newDeviceLoc   = $('new-device-loc');
+const refreshDevicesBtn = $('refresh-devices-btn');
+const hardwareOnlineCount = $('hardware-online-count');
+
+// Speech Recognition & TTS State
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let isListening = false;
+let currentAudio = null;
+
+const SPEECH_LANG_MAP = {
+  auto: 'hi-IN', hi: 'hi-IN', mr: 'mr-IN', en: 'en-IN',
+  gu: 'gu-IN', bn: 'bn-IN', ta: 'ta-IN', te: 'te-IN',
+  kn: 'kn-IN', ml: 'ml-IN', pa: 'pa-IN', ur: 'ur-IN',
+};
+
+// Language labels
+const LANG_LABELS = {
+  auto: 'Auto Detect', hi: 'हिंदी', mr: 'मराठी', en: 'English',
+  gu: 'ગુજરાતી', bn: 'বাংলা', ta: 'தமிழ்', te: 'తెలుగు',
+  kn: 'ಕನ್ನಡ', ml: 'മലയാളം', pa: 'ਪੰਜਾਬੀ', ur: 'اردو',
+};
+
+// ──────────────────────────────────────────────────────────────
+// INITIALIZATION
+// ──────────────────────────────────────────────────────────────
+async function init() {
+  // Restore language preference
+  state.language = storage.getLanguagePreference();
+  updateLanguageUI(state.language);
+
+  // Restore or create conversation
+  const savedId = storage.getActiveConversation();
+  if (savedId) {
+    state.conversationId = savedId;
+    // Restore messages from local storage
+    state.messages = storage.loadMessages(savedId);
+    if (state.messages.length > 0) {
+      hideWelcome();
+      state.messages.forEach(msg => renderMessage(msg, false));
+      scrollToBottom();
+    }
+  }
+
+  // Populate sidebar conversation list
+  renderConversationList();
+
+  // Health check (non-blocking)
+  checkHealth();
+}
+
+// ──────────────────────────────────────────────────────────────
+// HEALTH CHECK
+// ──────────────────────────────────────────────────────────────
+async function checkHealth() {
+  try {
+    const health = await apiService.healthCheck();
+    if (health.gemini?.ok) {
+      setStatus('online', 'AI Online');
+    } else {
+      setStatus('offline', 'AI Degraded');
+      showToast('⚠️ AI service may be degraded. Check your API key in .env', 'error', 5000);
+    }
+  } catch (err) {
+    setStatus('offline', 'Server Offline');
+    showToast('❌ Cannot connect to backend. Please start the server.', 'error', 8000);
+  }
+}
+
+function setStatus(type, text) {
+  statusText.textContent = text;
+  if (type === 'online') {
+    statusDot.classList.remove('offline');
+  } else {
+    statusDot.classList.add('offline');
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// SEND MESSAGE
+// ──────────────────────────────────────────────────────────────
+async function sendMessage(text) {
+  const message = (text || messageInput.value).trim();
+  if (!message || state.isLoading) return;
+
+  messageInput.value = '';
+  autoResizeTextarea();
+
+  // Hide welcome screen on first message
+  if (state.messages.length === 0) {
+    hideWelcome();
+  }
+
+  // Add user message to UI
+  const userMsg = {
+    id: Date.now() + '_u',
+    role: 'user',
+    content: message,
+    timestamp: new Date().toISOString(),
+    language: state.language,
+  };
+  state.messages.push(userMsg);
+  renderMessage(userMsg);
+  scrollToBottom();
+
+  // Loading state
+  setLoading(true);
+
+  try {
+    const result = await apiService.sendMessage(message, state.language, state.conversationId);
+
+    // Update conversation ID
+    state.conversationId = result.conversationId;
+    storage.setActiveConversation(result.conversationId);
+
+    // Add AI message
+    const aiMsg = {
+      id: Date.now() + '_a',
+      role: 'ai',
+      content: result.reply,
+      timestamp: result.timestamp,
+      language: result.language,
+    };
+    state.messages.push(aiMsg);
+    renderMessage(aiMsg);
+    scrollToBottom();
+
+    // Persist messages
+    storage.saveMessages(state.conversationId, state.messages);
+
+    // Update conversation sidebar
+    renderConversationList();
+    storage.saveConversationMeta({
+      id: state.conversationId,
+      preview: message.slice(0, 80),
+      updatedAt: Date.now(),
+    });
+
+  } catch (err) {
+    renderError(err.message || 'Something went wrong. Please try again.');
+  } finally {
+    setLoading(false);
+    scrollToBottom();
+    messageInput.focus();
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// RENDER MESSAGE
+// ──────────────────────────────────────────────────────────────
+function renderMessage(msg, animate = true) {
+  // Remove welcome screen if still showing
+  if (welcomeScreen.style.display !== 'none' && state.messages.length > 0) {
+    hideWelcome();
+  }
+
+  const isUser = msg.role === 'user';
+  const group  = document.createElement('div');
+  group.className = `message-group ${isUser ? 'user' : 'ai'}`;
+  if (!animate) group.style.animation = 'none';
+  group.dataset.msgId = msg.id;
+
+  // Sender label
+  const sender = document.createElement('div');
+  sender.className = 'message-sender';
+  sender.innerHTML = isUser
+    ? `<div class="sender-icon">👤</div> <span>You</span>`
+    : `<div class="sender-icon">🤖</div> <span>JANSEVA.AI</span>`;
+  group.appendChild(sender);
+
+  // Bubble
+  const bubble = document.createElement('div');
+  bubble.className = 'message-bubble';
+
+  if (isUser) {
+    bubble.textContent = msg.content;
+  } else {
+    // Render Markdown-like formatting for AI responses
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'ai-content';
+    contentDiv.innerHTML = formatAIContent(msg.content);
+    bubble.appendChild(contentDiv);
+  }
+  group.appendChild(bubble);
+
+  // Footer: timestamp + actions
+  const footer = document.createElement('div');
+  footer.className = 'message-footer';
+
+  const timeEl = document.createElement('span');
+  timeEl.className = 'message-time';
+  timeEl.textContent = formatTime(msg.timestamp);
+  footer.appendChild(timeEl);
+
+  if (!isUser) {
+    // Speak button
+    const speakBtn = document.createElement('button');
+    speakBtn.className = 'msg-action-btn speak-btn';
+    speakBtn.innerHTML = '🔊 Speak';
+    speakBtn.addEventListener('click', () => speakMessage(msg.content, msg.language || state.language, speakBtn));
+    footer.appendChild(speakBtn);
+
+    // Copy button
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'msg-action-btn';
+    copyBtn.innerHTML = '📋 Copy';
+    copyBtn.addEventListener('click', () => copyMessage(msg.content, copyBtn));
+    footer.appendChild(copyBtn);
+
+    // Regenerate button
+    const regenBtn = document.createElement('button');
+    regenBtn.className = 'msg-action-btn';
+    regenBtn.innerHTML = '🔄 Regenerate';
+    regenBtn.addEventListener('click', () => regenerateResponse(msg));
+    footer.appendChild(regenBtn);
+  }
+
+  group.appendChild(footer);
+
+  // Insert before typing indicator
+  chatBody.insertBefore(group, typingIndicator);
+}
+
+// ──────────────────────────────────────────────────────────────
+// FORMAT AI CONTENT (Basic Markdown → HTML)
+// ──────────────────────────────────────────────────────────────
+function formatAIContent(text) {
+  return text
+    // Bold: **text** or __text__
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(.*?)__/g, '<strong>$1</strong>')
+    // Italic: *text* or _text_
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    // Headers: ### text
+    .replace(/^### (.*$)/gm, '<h4>$1</h4>')
+    .replace(/^## (.*$)/gm, '<h3>$1</h3>')
+    // Horizontal rule
+    .replace(/^---$/gm, '<hr/>')
+    // Unordered lists
+    .replace(/^\* (.+)$/gm, '<li>$1</li>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    // Ordered lists
+    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+    // Wrap consecutive <li> in <ul>
+    .replace(/((<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>')
+    // Newlines → paragraphs (double newline = paragraph break)
+    .split('\n\n').map(para => para.trim()
+      ? (para.startsWith('<') ? para : `<p>${para.replace(/\n/g, '<br/>')}</p>`)
+      : ''
+    ).join('');
+}
+
+// ──────────────────────────────────────────────────────────────
+// RENDER ERROR
+// ──────────────────────────────────────────────────────────────
+function renderError(message) {
+  const errDiv = document.createElement('div');
+  errDiv.className = 'error-message';
+  errDiv.innerHTML = `<span>⚠️</span><span>${escapeHtml(message)}</span>`;
+  chatBody.insertBefore(errDiv, typingIndicator);
+}
+
+// ──────────────────────────────────────────────────────────────
+// COPY & REGENERATE
+// ──────────────────────────────────────────────────────────────
+async function copyMessage(content, btn) {
+  try {
+    await navigator.clipboard.writeText(content);
+    btn.innerHTML = '✅ Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.innerHTML = '📋 Copy'; btn.classList.remove('copied'); }, 2000);
+  } catch {
+    // Fallback for older browsers
+    const ta = document.createElement('textarea');
+    ta.value = content;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    btn.innerHTML = '✅ Copied!';
+    setTimeout(() => { btn.innerHTML = '📋 Copy'; }, 2000);
+  }
+}
+
+async function regenerateResponse(aiMsg) {
+  if (state.isLoading) return;
+  // Find the user message just before this AI message
+  const aiIdx = state.messages.findIndex(m => m.id === aiMsg.id);
+  if (aiIdx <= 0) return;
+  const userMsg = state.messages[aiIdx - 1];
+  if (userMsg.role !== 'user') return;
+
+  // Remove AI message from DOM and state
+  const el = chatBody.querySelector(`[data-msg-id="${aiMsg.id}"]`);
+  if (el) el.remove();
+  state.messages.splice(aiIdx, 1);
+
+  // Resend
+  await sendMessage(userMsg.content);
+}
+
+// ──────────────────────────────────────────────────────────────
+// NEW CONVERSATION
+// ──────────────────────────────────────────────────────────────
+async function newConversation() {
+  // Save current
+  if (state.conversationId && state.messages.length > 0) {
+    storage.saveConversationMeta({
+      id: state.conversationId,
+      preview: state.messages[0]?.content?.slice(0, 80) || 'Conversation',
+      updatedAt: Date.now(),
+    });
+  }
+
+  // Reset state
+  state.conversationId = null;
+  state.messages = [];
+  storage.setActiveConversation(null);
+
+  // Clear chat body (keep typing indicator and welcome screen)
+  const msgs = chatBody.querySelectorAll('.message-group, .error-message');
+  msgs.forEach(m => m.remove());
+
+  // Show welcome screen
+  showWelcome();
+  renderConversationList();
+  messageInput.focus();
+  showToast('✨ New conversation started', 'success');
+}
+
+// ──────────────────────────────────────────────────────────────
+// CLEAR CONVERSATION
+// ──────────────────────────────────────────────────────────────
+async function clearCurrentConversation() {
+  if (!state.conversationId) { newConversation(); return; }
+
+  try {
+    await apiService.clearConversation(state.conversationId);
+  } catch (_) { /* if server clear fails, still clear UI */ }
+
+  state.messages = [];
+  storage.clearMessages(state.conversationId);
+
+  const msgs = chatBody.querySelectorAll('.message-group, .error-message');
+  msgs.forEach(m => m.remove());
+
+  showWelcome();
+  showToast('🗑️ Conversation cleared', 'info');
+}
+
+// ──────────────────────────────────────────────────────────────
+// SIDEBAR CONVERSATION LIST
+// ──────────────────────────────────────────────────────────────
+function renderConversationList() {
+  const list = storage.getConversationList();
+  convList.innerHTML = '';
+
+  if (list.length === 0) {
+    convList.innerHTML = '<div style="padding:12px; font-size:12px; color:rgba(255,255,255,0.3); text-align:center;">No recent conversations</div>';
+    return;
+  }
+
+  list.forEach(conv => {
+    const item = document.createElement('div');
+    item.className = `conversation-item ${conv.id === state.conversationId ? 'active' : ''}`;
+    item.innerHTML = `
+      <div class="conv-preview">${escapeHtml(conv.preview || 'Conversation')}</div>
+      <div class="conv-time">${formatRelativeTime(conv.updatedAt)}</div>
+    `;
+    item.addEventListener('click', () => loadConversation(conv));
+    convList.appendChild(item);
+  });
+}
+
+function loadConversation(conv) {
+  // Save current
+  if (state.conversationId && state.messages.length > 0) {
+    storage.saveMessages(state.conversationId, state.messages);
+  }
+
+  // Clear UI
+  const msgs = chatBody.querySelectorAll('.message-group, .error-message');
+  msgs.forEach(m => m.remove());
+
+  // Load saved messages
+  state.conversationId = conv.id;
+  state.messages = storage.loadMessages(conv.id);
+  storage.setActiveConversation(conv.id);
+
+  if (state.messages.length > 0) {
+    hideWelcome();
+    state.messages.forEach(msg => renderMessage(msg, false));
+    scrollToBottom();
+  } else {
+    showWelcome();
+  }
+
+  renderConversationList();
+  closeSidebar();
+}
+
+// ──────────────────────────────────────────────────────────────
+// LANGUAGE
+// ──────────────────────────────────────────────────────────────
+function updateLanguageUI(lang) {
+  currentLangLabel.textContent = LANG_LABELS[lang] || 'Auto Detect';
+
+  // Update panel radio buttons
+  document.querySelectorAll('.lang-option').forEach(btn => {
+    const isSelected = btn.dataset.lang === lang;
+    btn.classList.toggle('selected', isSelected);
+    btn.setAttribute('aria-checked', isSelected ? 'true' : 'false');
+  });
+}
+
+async function selectLanguage(lang) {
+  state.language = lang;
+  storage.setLanguagePreference(lang);
+  updateLanguageUI(lang);
+
+  // Notify backend
+  if (state.conversationId) {
+    try { await apiService.setLanguage(state.conversationId, lang); } catch (_) {}
+  }
+
+  closeLangPanel();
+  showToast(`🌐 Language set to: ${LANG_LABELS[lang]}`, 'success');
+}
+
+// ──────────────────────────────────────────────────────────────
+// PANEL & SIDEBAR TOGGLES
+// ──────────────────────────────────────────────────────────────
+function openLangPanel() {
+  languagePanel.classList.add('open');
+  overlay.classList.add('open');
+  overlay.setAttribute('aria-hidden', 'false');
+}
+
+function closeLangPanel() {
+  languagePanel.classList.remove('open');
+  overlay.classList.remove('open');
+  overlay.setAttribute('aria-hidden', 'true');
+}
+
+function toggleSidebar() {
+  state.sidebarOpen = !state.sidebarOpen;
+  sidebar.classList.toggle('open', state.sidebarOpen);
+  overlay.classList.toggle('open', state.sidebarOpen);
+  $('sidebar-toggle').setAttribute('aria-expanded', state.sidebarOpen);
+}
+
+function closeSidebar() {
+  state.sidebarOpen = false;
+  sidebar.classList.remove('open');
+  // Only close overlay if language panel also closed
+  if (!languagePanel.classList.contains('open')) {
+    overlay.classList.remove('open');
+  }
+  $('sidebar-toggle').setAttribute('aria-expanded', 'false');
+}
+
+// ──────────────────────────────────────────────────────────────
+// SPEECH RECOGNITION (STT)
+// ──────────────────────────────────────────────────────────────
+function initSpeechRecognition() {
+  if (!SpeechRecognition) {
+    if (micBtn) micBtn.title = 'Voice input not supported in this browser (Use Chrome/Edge)';
+    return;
+  }
+
+  recognition = new SpeechRecognition();
+  recognition.continuous = false;
+  recognition.interimResults = true;
+
+  recognition.onstart = () => {
+    isListening = true;
+    micBtn.classList.add('recording');
+    voiceStatusBar.classList.add('active');
+    voiceStatusText.textContent = `🎙️ Listening in ${LANG_LABELS[state.language] || 'Hindi'}... Speak now`;
+  };
+
+  recognition.onresult = (event) => {
+    const transcript = Array.from(event.results)
+      .map(r => r[0].transcript)
+      .join('');
+    messageInput.value = transcript;
+    autoResizeTextarea();
+  };
+
+  recognition.onerror = (event) => {
+    console.error('Speech recognition error:', event.error);
+    showToast(`⚠️ Mic: ${event.error === 'not-allowed' ? 'Microphone permission denied' : event.error}`, 'error');
+    stopListening();
+  };
+
+  recognition.onend = () => {
+    stopListening();
+    if (messageInput.value.trim().length > 0) {
+      sendMessage();
+    }
+  };
+}
+
+function startListening() {
+  if (!recognition) {
+    showToast('⚠️ Voice input not supported in this browser. Please use Chrome or Edge.', 'error');
+    return;
+  }
+  if (isListening) {
+    recognition.stop();
+    return;
+  }
+
+  recognition.lang = SPEECH_LANG_MAP[state.language] || 'hi-IN';
+  try {
+    recognition.start();
+  } catch (err) {
+    console.warn('Recognition start failed:', err);
+  }
+}
+
+function stopListening() {
+  isListening = false;
+  if (micBtn) micBtn.classList.remove('recording');
+  if (voiceStatusBar) voiceStatusBar.classList.remove('active');
+}
+
+// ──────────────────────────────────────────────────────────────
+// TEXT-TO-SPEECH (TTS) AUDIO PLAYBACK
+// ──────────────────────────────────────────────────────────────
+async function speakMessage(text, lang = 'hi', btn = null) {
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+    document.querySelectorAll('.speak-btn').forEach(b => {
+      b.classList.remove('playing');
+      b.innerHTML = '🔊 Speak';
+    });
+    if (btn && btn.classList.contains('playing')) return;
+  }
+
+  if (btn) {
+    btn.classList.add('playing');
+    btn.innerHTML = '⏸️ Playing...';
+  }
+
+  const ttsUrl = apiService.getTTSUrl(text, lang || state.language || 'hi');
+  const audio = new Audio(ttsUrl);
+  currentAudio = audio;
+
+  audio.onended = () => {
+    if (btn) {
+      btn.classList.remove('playing');
+      btn.innerHTML = '🔊 Speak';
+    }
+    currentAudio = null;
+  };
+
+  audio.onerror = () => {
+    // Fallback to browser SpeechSynthesis
+    if (window.speechSynthesis) {
+      const cleanText = text.replace(/[*_#`~[\]()]/g, '').slice(0, 250);
+      const utter = new SpeechSynthesisUtterance(cleanText);
+      utter.lang = SPEECH_LANG_MAP[lang] || 'hi-IN';
+      utter.onend = () => {
+        if (btn) {
+          btn.classList.remove('playing');
+          btn.innerHTML = '🔊 Speak';
+        }
+        currentAudio = null;
+      };
+      window.speechSynthesis.speak(utter);
+    } else {
+      if (btn) {
+        btn.classList.remove('playing');
+        btn.innerHTML = '🔊 Speak';
+      }
+      currentAudio = null;
+    }
+  };
+
+  try {
+    await audio.play();
+  } catch (err) {
+    console.warn('Audio playback error:', err);
+    audio.onerror();
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// HARDWARE DEVICE MANAGEMENT
+// ──────────────────────────────────────────────────────────────
+async function loadHardwareDevices() {
+  try {
+    const res = await apiService.listDevices();
+    const devices = res.devices || [];
+    const onlineCount = devices.filter(d => d.status === 'online').length;
+    if (hardwareOnlineCount) hardwareOnlineCount.textContent = onlineCount;
+
+    if (deviceListContainer) {
+      if (devices.length === 0) {
+        deviceListContainer.innerHTML = `
+          <div style="text-align:center; padding:20px; color:#64748b; font-size:13px; background:#f8fafc; border-radius:8px;">
+            No ESP32 hardware devices registered yet.<br/>Use the form below to register your first kiosk.
+          </div>`;
+        return;
+      }
+
+      deviceListContainer.innerHTML = devices.map(dev => `
+        <div class="device-item-card">
+          <div class="device-item-info">
+            <h4>📟 ${escapeHtml(dev.name)} <span class="device-status-pill ${dev.status}">${dev.status === 'online' ? '🟢 Online' : '⚪ Offline'}</span></h4>
+            <div class="device-item-meta">
+              <span><b>ID:</b> <span class="code-pill">${dev.id}</span></span>
+              <span><b>Loc:</b> ${escapeHtml(dev.location || 'Main Counter')}</span>
+              ${dev.ip ? `<span><b>IP:</b> ${dev.ip}</span>` : ''}
+              ${dev.rssi ? `<span><b>WiFi:</b> ${dev.rssi} dBm</span>` : ''}
+            </div>
+          </div>
+          <div class="device-actions">
+            <button class="device-btn test-voice-btn" data-dev-id="${dev.id}" data-dev-name="${escapeHtml(dev.name)}">🔊 Test Voice</button>
+            <button class="device-btn btn-danger delete-dev-btn" data-dev-id="${dev.id}">🗑️</button>
+          </div>
+        </div>
+      `).join('');
+
+      // Test voice & delete handlers
+      deviceListContainer.querySelectorAll('.test-voice-btn').forEach(b => {
+        b.addEventListener('click', () => {
+          const name = b.dataset.devName;
+          speakMessage(`नमस्ते, ${name} हार्डवेयर केंद्र सेवा के लिए तैयार है।`, 'hi', b);
+        });
+      });
+
+      deviceListContainer.querySelectorAll('.delete-dev-btn').forEach(b => {
+        b.addEventListener('click', async () => {
+          if (confirm(`Delete device ${b.dataset.devId}?`)) {
+            await apiService.deleteDevice(b.dataset.devId);
+            showToast('🗑️ Device removed', 'info');
+            loadHardwareDevices();
+          }
+        });
+      });
+    }
+  } catch (err) {
+    console.error('Failed to load hardware devices:', err);
+  }
+}
+
+async function registerNewDevice() {
+  const name = newDeviceName.value.trim();
+  const location = newDeviceLoc.value.trim();
+  if (!name) {
+    showToast('⚠️ Please enter a Device Name', 'error');
+    newDeviceName.focus();
+    return;
+  }
+
+  try {
+    const res = await apiService.registerDevice(name, location);
+    if (res.success) {
+      showToast(`✅ Registered ${res.device.name} (ID: ${res.device.id})`, 'success');
+      newDeviceName.value = '';
+      newDeviceLoc.value = '';
+      loadHardwareDevices();
+    }
+  } catch (err) {
+    showToast(`❌ Failed to register: ${err.message}`, 'error');
+  }
+}
+
+function openDeviceModal() {
+  deviceModal.classList.add('open');
+  overlay.classList.add('open');
+  overlay.setAttribute('aria-hidden', 'false');
+  loadHardwareDevices();
+
+  // Set host hint
+  const hintEl = $('local-server-ip-hint');
+  if (hintEl) hintEl.textContent = `http://${window.location.hostname}:3000`;
+}
+
+function closeDeviceModal() {
+  deviceModal.classList.remove('open');
+  if (!languagePanel.classList.contains('open')) {
+    overlay.classList.remove('open');
+    overlay.setAttribute('aria-hidden', 'true');
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// UI HELPERS
+// ──────────────────────────────────────────────────────────────
+function setLoading(loading) {
+  state.isLoading = loading;
+  sendBtn.disabled = loading;
+  typingIndicator.classList.toggle('visible', loading);
+
+  if (loading) {
+    typingIndicator.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }
+}
+
+function showWelcome() {
+  welcomeScreen.style.display = '';
+  welcomeScreen.style.animation = 'fadeInUp 0.4s ease';
+}
+
+function hideWelcome() {
+  welcomeScreen.style.display = 'none';
+}
+
+function scrollToBottom() {
+  requestAnimationFrame(() => {
+    chatBody.scrollTo({ top: chatBody.scrollHeight, behavior: 'smooth' });
+  });
+}
+
+function autoResizeTextarea() {
+  messageInput.style.height = 'auto';
+  messageInput.style.height = Math.min(messageInput.scrollHeight, 160) + 'px';
+}
+
+function formatTime(iso) {
+  try {
+    return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  } catch { return ''; }
+}
+
+function formatRelativeTime(ts) {
+  const diff = Date.now() - ts;
+  if (diff < 60000)   return 'just now';
+  if (diff < 3600000) return `${Math.floor(diff/60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff/3600000)}h ago`;
+  return new Date(ts).toLocaleDateString('en-IN');
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ──────────────────────────────────────────────────────────────
+// TOAST
+// ──────────────────────────────────────────────────────────────
+let toastTimer = null;
+function showToast(message, type = 'info', duration = 3000) {
+  if (toastTimer) clearTimeout(toastTimer);
+  toast.textContent = message;
+  toast.className = `show ${type}`;
+  toastTimer = setTimeout(() => { toast.className = ''; }, duration);
+}
+
+// ──────────────────────────────────────────────────────────────
+// EVENT LISTENERS
+// ──────────────────────────────────────────────────────────────
+
+// Send on click
+sendBtn.addEventListener('click', () => sendMessage());
+
+// Send on Enter, Shift+Enter for newline
+messageInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+// Auto-resize textarea
+messageInput.addEventListener('input', autoResizeTextarea);
+
+// Microphone click -> start voice recognition
+if (micBtn) {
+  micBtn.addEventListener('click', () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+    }
+  });
+}
+
+if (voiceCancelBtn) {
+  voiceCancelBtn.addEventListener('click', stopListening);
+}
+
+// Hardware device modal toggles
+if (navHardware) navHardware.addEventListener('click', openDeviceModal);
+if (headerHardwareBtn) headerHardwareBtn.addEventListener('click', openDeviceModal);
+if (deviceModalClose) deviceModalClose.addEventListener('click', closeDeviceModal);
+if (refreshDevicesBtn) refreshDevicesBtn.addEventListener('click', loadHardwareDevices);
+if (registerDeviceBtn) registerDeviceBtn.addEventListener('click', registerNewDevice);
+
+// Suggestion cards
+document.querySelectorAll('.suggestion-card').forEach(card => {
+  card.addEventListener('click', () => {
+    const msg = card.dataset.message;
+    if (msg) sendMessage(msg);
+  });
+});
+
+// Language panel open/close
+$('header-language-btn').addEventListener('click', openLangPanel);
+$('nav-language').addEventListener('click', openLangPanel);
+$('lang-panel-close').addEventListener('click', closeLangPanel);
+
+// Language options
+document.querySelectorAll('.lang-option').forEach(btn => {
+  btn.addEventListener('click', () => selectLanguage(btn.dataset.lang));
+});
+
+// Overlay click → close whatever is open
+overlay.addEventListener('click', () => {
+  closeLangPanel();
+  closeSidebar();
+  closeDeviceModal();
+});
+
+// New conversation
+$('sidebar-new-btn').addEventListener('click', newConversation);
+$('header-new-btn').addEventListener('click', newConversation);
+
+// Clear chat
+$('nav-clear').addEventListener('click', clearCurrentConversation);
+
+// Sidebar toggle (mobile)
+$('sidebar-toggle').addEventListener('click', toggleSidebar);
+
+// Settings (placeholder)
+$('nav-settings').addEventListener('click', () => {
+  showToast('⚙️ Settings coming soon', 'info');
+});
+
+// Keyboard: Escape to close panels
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    closeLangPanel();
+    closeSidebar();
+    closeDeviceModal();
+    stopListening();
+  }
+});
+
+// Close sidebar when clicking outside on mobile
+document.addEventListener('click', e => {
+  if (window.innerWidth <= 768 && state.sidebarOpen) {
+    if (!sidebar.contains(e.target) && !$('sidebar-toggle').contains(e.target)) {
+      closeSidebar();
+    }
+  }
+});
+
+// ──────────────────────────────────────────────────────────────
+// START
+// ──────────────────────────────────────────────────────────────
+init();
+initSpeechRecognition();
+loadHardwareDevices();
+</script>
+</body>
+</html>
