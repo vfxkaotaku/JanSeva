@@ -79,6 +79,116 @@ router.post('/heartbeat', (req, res) => {
 });
 
 /**
+ * Transliterate Devanagari script to clean Latin/ASCII for 128x64 OLED displays.
+ */
+function devanagariToLatin(str) {
+  if (!str) return '';
+  if (!/[\u0900-\u097F]/.test(str)) {
+    return str.replace(/[^\x20-\x7E]/g, '').trim();
+  }
+
+  const vowelMap = {
+    'अ': 'a', 'आ': 'aa', 'इ': 'i', 'ई': 'ee', 'उ': 'u', 'ऊ': 'oo',
+    'ऋ': 'ri', 'ए': 'e', 'ऐ': 'ai', 'ओ': 'o', 'औ': 'au'
+  };
+
+  const matraMap = {
+    'ा': 'a', 'ि': 'i', 'ी': 'ee', 'ु': 'u', 'ू': 'oo',
+    'ृ': 'ri', 'े': 'e', 'ै': 'ai', 'ो': 'o', 'ौ': 'au',
+    'ं': 'n', 'ँ': 'n', 'ः': 'h'
+  };
+
+  const consonantMap = {
+    'क': 'k', 'ख': 'kh', 'ग': 'g', 'घ': 'gh', 'ङ': 'ng',
+    'च': 'ch', 'छ': 'chh', 'ज': 'j', 'झ': 'jh', 'ञ': 'ny',
+    'ट': 't', 'ठ': 'th', 'ड': 'd', 'ढ': 'dh', 'ण': 'n',
+    'त': 't', 'थ': 'th', 'द': 'd', 'ध': 'dh', 'न': 'n',
+    'प': 'p', 'फ': 'f', 'ब': 'b', 'भ': 'bh', 'म': 'm',
+    'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v', 'श': 'sh',
+    'ष': 'sh', 'स': 's', 'ह': 'h', 'ळ': 'l'
+  };
+
+  const numMap = {
+    '०': '0', '१': '1', '२': '2', '३': '3', '४': '4',
+    '५': '5', '६': '6', '७': '7', '८': '8', '९': '9'
+  };
+
+  let out = '';
+  const len = str.length;
+  for (let i = 0; i < len; i++) {
+    const ch = str[i];
+    if (vowelMap[ch]) {
+      out += vowelMap[ch];
+    } else if (numMap[ch]) {
+      out += numMap[ch];
+    } else if (consonantMap[ch]) {
+      const cons = consonantMap[ch];
+      const next = str[i + 1];
+      if (next === '्') {
+        out += cons;
+        i++;
+      } else if (matraMap[next]) {
+        out += cons + matraMap[next];
+        i++;
+      } else {
+        const afterNext = str[i + 1];
+        if (!afterNext || afterNext === ' ' || afterNext === '\n' || /[.,?!]/.test(afterNext)) {
+          out += cons;
+        } else {
+          out += cons + 'a';
+        }
+      }
+    } else if (matraMap[ch]) {
+      out += matraMap[ch];
+    } else if (ch >= ' ' && ch <= '~') {
+      out += ch;
+    }
+  }
+  return out.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Generate 3-4 concise ASCII lines suitable for 128x64 OLED display.
+ */
+function generateScreenSummary(reply) {
+  if (!reply) return '';
+  let clean = reply
+    .replace(/[*_#`~[\]()]/g, '')
+    .replace(/📋|🎁|✅|🔗|📄|👥|🌾|💳|🏛️|🇮🇳|💡|🚨|⚠️|🔴|🤖/g, '')
+    .trim();
+
+  let lines = clean.split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 0);
+
+  let formatted = [];
+  for (let l of lines) {
+    if (/योजना|scheme/i.test(l)) {
+      let val = l.replace(/^[^:]+:\s*/, '');
+      formatted.push('Yoj: ' + (devanagariToLatin(val) || val).slice(0, 16));
+    } else if (/लाभ|benefit|amount|रुपये/i.test(l)) {
+      let val = l.replace(/^[^:]+:\s*/, '');
+      formatted.push('Labh: ' + (devanagariToLatin(val) || val).slice(0, 15));
+    } else if (/पात्रता|eligible|who/i.test(l)) {
+      let val = l.replace(/^[^:]+:\s*/, '');
+      formatted.push('Patra: ' + (devanagariToLatin(val) || val).slice(0, 14));
+    } else if (/आवेदन|अर्ज|apply|portal|kendra/i.test(l)) {
+      let val = l.replace(/^[^:]+:\s*/, '');
+      formatted.push('Apply: ' + (devanagariToLatin(val) || val).slice(0, 14));
+    }
+  }
+
+  if (formatted.length === 0) {
+    formatted = lines.slice(0, 4).map((l, i) => {
+      let lat = devanagariToLatin(l) || l;
+      return `${i + 1}. ` + lat.slice(0, 17);
+    });
+  }
+
+  return formatted.slice(0, 4).join('\n');
+}
+
+/**
  * POST /api/device/stt
  * Speech-to-Text endpoint for ESP32 conversation flow.
  * Transcribes audio recorded via INMP441 into text.
@@ -101,11 +211,13 @@ router.post('/stt', async (req, res, next) => {
     deviceService.logActivity(deviceId, `Recording received (${audioBuffer.length} bytes), transcribing...`);
 
     const text = await speechService.transcribeAudio(audioBuffer, mimeType);
+    const displayText = devanagariToLatin(text);
     deviceService.logActivity(deviceId, `Heard: "${text}"`);
 
     res.json({
       success: true,
       text,
+      displayText: displayText || text,
       reply: text,
       deviceId,
     });
@@ -154,11 +266,14 @@ router.post('/audio', async (req, res, next) => {
       return res.send(ttsBuffer);
     }
 
-    // Default: return JSON response with text and TTS URL
+    const screenSummary = generateScreenSummary(result.reply);
+
+    // Default: return JSON response with text, screen summary, and TTS URL
     res.json({
       success: true,
       deviceId,
       reply: result.reply,
+      screenSummary,
       text: result.reply,
       language: result.language,
       ttsUrl: `/api/device/tts?text=${encodeURIComponent(result.reply.slice(0, 250))}&lang=${result.language}`,
@@ -172,24 +287,28 @@ router.post('/audio', async (req, res, next) => {
 
 /**
  * POST /api/device/text
- * Direct text query from ESP32 or terminal test.
+ * Direct query from ESP32 Smart Kiosk or terminal test.
  */
 router.post('/text', async (req, res, next) => {
   try {
-    const { deviceId = 'ESP32_NODE', message, language = 'auto' } = req.body;
+    const { deviceId = 'ESP32_NODE', message, language = 'auto', userName, userPhone, location } = req.body;
     if (!message) {
       return res.status(400).json({ success: false, message: 'message is required' });
     }
 
-    deviceService.logActivity(deviceId, `Text query: "${message.slice(0, 40)}"`);
+    const citizenTag = userName ? ` [${userName}${userPhone ? ' | 📱' + userPhone : ''}]` : '';
+    deviceService.logActivity(deviceId, `👤 Citizen${citizenTag}: "${message.slice(0, 60)}"`);
 
     const result = await chatService.processMessage({ message, language });
-    deviceService.logActivity(deviceId, `Reply: "${result.reply.slice(0, 40)}..."`);
+    const screenSummary = generateScreenSummary(result.reply);
+
+    deviceService.logActivity(deviceId, `🤖 JanSeva AI: "${result.reply.slice(0, 60)}..."`);
 
     res.json({
       success: true,
       deviceId,
       reply: result.reply,
+      screenSummary,
       language: result.language,
       ttsUrl: `/api/device/tts?text=${encodeURIComponent(result.reply.slice(0, 250))}&lang=${result.language}`,
     });

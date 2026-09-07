@@ -139,8 +139,12 @@ function recordHeartbeat(deviceId, { ip, rssi, freeHeap } = {}) {
  * Log activity from device.
  */
 function logActivity(deviceId, message) {
-  const dev = devices.get(deviceId.toUpperCase()) || devices.get(deviceId);
-  if (!dev) return;
+  let dev = devices.get(deviceId.toUpperCase()) || devices.get(deviceId);
+  if (!dev) {
+    dev = registerDevice({ name: `ESP32 Kiosk (${deviceId})` });
+    dev.id = deviceId.toUpperCase();
+    devices.set(dev.id, dev);
+  }
 
   if (!dev.logs) dev.logs = [];
   dev.logs.unshift({

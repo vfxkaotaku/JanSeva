@@ -158,13 +158,15 @@ enum ConvStep {
   STEP_ASK_MORE
 };
 
-ConvStep convStep     = STEP_IDLE;
-String   userName     = "";
-String   userPhone    = "";
-String   userProblem  = "";
-String   lastSolution = "";
-String   activeLang   = "hi";
-String   convId       = "";
+ConvStep convStep          = STEP_IDLE;
+String   userName          = "";
+String   userPhone         = "";
+String   userProblem       = "";
+String   lastSolution      = "";
+String   lastScreenSummary = "";
+String   sttDisplayText    = "";
+String   activeLang        = "hi";
+String   convId            = "";
 
 unsigned long lastHeartbeat = 0;
 #define HEARTBEAT_MS 30000
@@ -174,6 +176,8 @@ unsigned long lastHeartbeat = 0;
 // ============================================================================
 void drawRobotFace(FaceState state, String label);
 void showOLED(String l1, String l2, String l3, String l4);  // legacy wrapper
+void showScreenCard(String title, String body, String status);
+void playTone(int freqHz, int durationMs);
 void startPortal();
 void handlePortalRoot();
 void handlePortalSave();
@@ -297,7 +301,9 @@ void setup() {
     Serial.println("\n[BOOT] Saved WiFi: " + cfg_ssid);
     Serial.println("[BOOT] Hold BOOT button, touch sensor, or type 'r' in Serial (3s window) for Setup Portal...");
 
-    drawRobotFace(FACE_SETUP, "Setup?");
+    showScreenCard("JANSEVA AI KIOSK",
+                   "Starting up...\nWiFi: " + cfg_ssid + "\nHold touch for setup",
+                   "[Boot Standby]");
 
     unsigned long promptStart = millis();
     while (millis() - promptStart < 3000) {
@@ -320,7 +326,9 @@ void setup() {
   }
 
   // Connect to saved WiFi
-  showOLED("Connecting...", cfg_ssid, "Please wait", "");
+  showScreenCard("CONNECTING...",
+                 "Connecting to WiFi:\n" + cfg_ssid + "\n\nPlease wait...",
+                 "[WiFi Connecting]");
   WiFi.disconnect(true);
   delay(100);
   WiFi.mode(WIFI_STA);
@@ -347,11 +355,17 @@ void setup() {
     Serial.println("\n[WiFi] Connected: " + ip);
     sendHeartbeat();
 
-    // Greet user aloud as soon as device is connected & ready
-    Serial.println("[VOICE] Speaking startup greeting...");
-    drawRobotFace(FACE_GREET, "Namaskar!");
-    speakText("Namaste! Mera naam JanSeva hai. Main aapki kya madad kar sakti hoon?", activeLang);
+    // Pleasant 2-tone melodic ready chime (silent boot - no unprompted voice)
+    playTone(659, 100);
+    delay(40);
+    playTone(880, 160);
 
+    showScreenCard("JANSEVA READY",
+                   "WiFi Connected!\nIP: " + ip + "\n" + cfg_location + "\nTouch sensor to start",
+                   "[Ready Standby]");
+    delay(1200);
+
+    convStep = STEP_IDLE;
     drawRobotFace(FACE_IDLE, cfg_location.substring(0, 9));
   } else {
     Serial.println("\n[WiFi] Failed. Opening setup portal...");
@@ -370,7 +384,7 @@ void loop() {
     if (cmd.equalsIgnoreCase("reset") || cmd.equalsIgnoreCase("setup") || cmd.equalsIgnoreCase("portal") || cmd.equalsIgnoreCase("r")) {
       Serial.println("[CMD] Reset command received! Clearing WiFi and restarting...");
       prefs.clear();
-      showOLED("WiFi Reset!", "Clearing settings", "Starting portal", "");
+      showScreenCard("WIFI RESET", "Clearing settings...\nStarting portal.", "[Resetting]");
       delay(800);
       ESP.restart();
       return;
@@ -386,13 +400,13 @@ void loop() {
 
   // Physical BOOT button (GPIO 0) detection:
   // - Hold for 3s -> Factory Reset (wipes WiFi & restarts)
-  // - Short tap -> Start / trigger conversation
+  // - Short tap -> Wake up kiosk / continuous question
   if (digitalRead(PIN_BOOT_BTN) == LOW) {
     unsigned long pressStart = millis();
     while (digitalRead(PIN_BOOT_BTN) == LOW) {
       if (millis() - pressStart > 3000) {
         Serial.println("[BTN] BOOT button held 3s -> FACTORY RESET!");
-        showOLED("Factory Reset!", "Clearing settings", "Restarting...", "");
+        showScreenCard("FACTORY RESET", "Clearing settings...\nRestarting device.", "[Resetting]");
         while (digitalRead(PIN_BOOT_BTN) == LOW) delay(50);
         prefs.clear();
         delay(500);
@@ -403,20 +417,26 @@ void loop() {
     }
     // Short tap on BOOT button triggers conversation just like touch sensor!
     if (convStep == STEP_IDLE) {
+      playTone(784, 80); delay(20); playTone(1046, 120);
       resetConversation();
       convStep = STEP_GREET;
+      runConversationStep("");
+      return;
+    } else if (convStep == STEP_ASK_MORE || convStep == STEP_SPEAK_SOLUTION) {
+      playTone(880, 80);
+      convStep = STEP_ASK_PROBLEM;
       runConversationStep("");
       return;
     }
   }
 
-  // TTP223 Touch detection
+  // TTP223 Touch detection (GPIO 33)
   if (digitalRead(PIN_TOUCH_SIG) == HIGH) {
     unsigned long touchStart = millis();
     while (digitalRead(PIN_TOUCH_SIG) == HIGH) {
       if (millis() - touchStart > 5000) {
         // 5s long press -> WiFi reset
-        showOLED("WiFi Reset!", "Clearing settings", "Restarting...", "");
+        showScreenCard("WIFI RESET", "Clearing settings...\nStarting portal.", "[Resetting]");
         while (digitalRead(PIN_TOUCH_SIG) == HIGH) delay(50);
         prefs.clear();
         ESP.restart();
@@ -424,17 +444,16 @@ void loop() {
       }
       delay(30);
     }
-    // Short tap
+    // Short tap on Touch Sensor:
     if (convStep == STEP_IDLE) {
+      // Wake up from sleep!
+      playTone(784, 80); delay(20); playTone(1046, 120);
       resetConversation();
       convStep = STEP_GREET;
       runConversationStep("");
-    } else if (convStep == STEP_ASK_REPEAT) {
-      speakText(lastSolution, activeLang);
-      convStep = STEP_ASK_MORE;
-      delay(400);
-      runConversationStep("");
-    } else if (convStep == STEP_ASK_MORE) {
+    } else if (convStep == STEP_ASK_MORE || convStep == STEP_SPEAK_SOLUTION) {
+      // Citizen wants to ask another question!
+      playTone(880, 80);
       convStep = STEP_ASK_PROBLEM;
       runConversationStep("");
     } else {
@@ -443,7 +462,7 @@ void loop() {
       if (got) {
         String text = sendAudioForSTT();
         if (text.length() > 0) runConversationStep(text);
-        else speakText("Mujhe sunai nahi diya. Kripya dobara boliye.", activeLang);
+        else speakText((activeLang == "mr") ? "Mala aikayala aale nahi. Krupaya punha bola." : "Mujhe sunai nahi diya. Kripya dobara boliye.", activeLang);
       }
     }
   }
@@ -702,6 +721,74 @@ void showOLED(String l1, String l2, String l3, String l4) {
   oled.display();
 }
 
+// Play clear melodic tone on DAC GPIO 25 for audible chimes
+void playTone(int freqHz, int durationMs) {
+  if (freqHz <= 0) { delay(durationMs); return; }
+  uint32_t periodUs = 1000000 / freqHz;
+  uint32_t halfUs = periodUs / 2;
+  unsigned long start = millis();
+  while (millis() - start < (unsigned long)durationMs) {
+    dacWrite(PIN_AUDIO_DAC, 200);
+    delayMicroseconds(halfUs);
+    dacWrite(PIN_AUDIO_DAC, 50);
+    delayMicroseconds(halfUs);
+  }
+  dacWrite(PIN_AUDIO_DAC, 0);
+}
+
+// Display high-contrast text card on 128x64 OLED (title banner + body + status)
+void showScreenCard(String title, String body, String status) {
+  oled.clearDisplay();
+
+  // Top header banner (inverted white bar with crisp black title)
+  oled.fillRect(0, 0, 128, 12, OLED_WHITE);
+  oled.setTextColor(OLED_BLACK, OLED_WHITE);
+  oled.setTextSize(1);
+  oled.setCursor(3, 2);
+  oled.print(title.substring(0, 20));
+
+  // Main body text (white on black, auto-wrapped lines)
+  oled.setTextColor(OLED_WHITE);
+  oled.setTextSize(1);
+  int cursorY = 15;
+  int lineStart = 0;
+  int len = body.length();
+
+  while (lineStart < len && cursorY <= 43) {
+    int lineEnd = lineStart;
+    int nextNewline = body.indexOf('\n', lineStart);
+    if (nextNewline != -1 && nextNewline - lineStart <= 21) {
+      lineEnd = nextNewline;
+    } else {
+      lineEnd = min(lineStart + 21, len);
+      if (lineEnd < len && body.charAt(lineEnd) != ' ') {
+        int lastSpace = body.lastIndexOf(' ', lineEnd);
+        if (lastSpace > lineStart + 4) {
+          lineEnd = lastSpace;
+        }
+      }
+    }
+
+    String lineStr = body.substring(lineStart, lineEnd);
+    lineStr.trim();
+    oled.setCursor(2, cursorY);
+    oled.print(lineStr);
+    cursorY += 10;
+
+    lineStart = lineEnd;
+    while (lineStart < len && (body.charAt(lineStart) == ' ' || body.charAt(lineStart) == '\n')) {
+      lineStart++;
+    }
+  }
+
+  // Bottom footer status bar
+  oled.drawLine(0, 51, 127, 51, OLED_WHITE);
+  oled.setCursor(2, 53);
+  oled.print(status.substring(0, 21));
+
+  oled.display();
+}
+
 // ============================================================================
 // I2S MICROPHONE INIT
 // ============================================================================
@@ -806,16 +893,22 @@ String sendAudioForSTT() {
   Serial.printf("[STT] HTTP response: %d\n", code);
 
   String result = "";
+  sttDisplayText = "";
   if (code == 200) {
     String body = http.getString();
-    StaticJsonDocument<512> doc;
+    StaticJsonDocument<1024> doc;
     if (deserializeJson(doc, body) == DeserializationError::Ok) {
-      result = doc["text"] | doc["reply"] | "";
+      result         = doc["text"] | doc["reply"] | "";
+      sttDisplayText = doc["displayText"] | "";
     } else {
       result = body;
     }
     result.trim();
+    sttDisplayText.trim();
     Serial.println("[STT] Recognized: " + result);
+    if (sttDisplayText.length() > 0) {
+      Serial.println("[STT] DisplayText: " + sttDisplayText);
+    }
   } else {
     Serial.printf("[STT] Error %d from server\n", code);
   }
@@ -824,13 +917,13 @@ String sendAudioForSTT() {
 }
 
 // ============================================================================
-// SEND CHAT MESSAGE TO AI
+// SEND CHAT MESSAGE TO AI (Syncs with JanSeva AI web backend)
 // ============================================================================
 String sendChatMessage(String message, String ctx) {
   if (WiFi.status() != WL_CONNECTED) return "";
 
   HTTPClient http;
-  http.begin(cfg_server + "/api/chat");
+  http.begin(cfg_server + "/api/device/text");
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Device-Id",  cfg_devid);
   http.setTimeout(30000);
@@ -838,10 +931,11 @@ String sendChatMessage(String message, String ctx) {
   StaticJsonDocument<1024> req;
   req["message"]       = message;
   req["language"]      = activeLang;
-  req["conversationId"]= convId;
-  req["deviceContext"] = ctx;
+  req["userName"]      = userName;
+  req["userPhone"]     = userPhone;
   req["deviceId"]      = cfg_devid;
   req["location"]      = cfg_location;
+  req["deviceContext"] = ctx;
 
   String body;
   serializeJson(req, body);
@@ -849,13 +943,22 @@ String sendChatMessage(String message, String ctx) {
   Serial.printf("[CHAT] HTTP %d\n", code);
 
   String reply = "";
+  lastScreenSummary = "";
   if (code == 200) {
     String res = http.getString();
     StaticJsonDocument<2048> doc;
-    if (deserializeJson(doc, res) == DeserializationError::Ok)
-      reply = doc["reply"] | doc["message"] | "";
+    if (deserializeJson(doc, res) == DeserializationError::Ok) {
+      reply             = doc["reply"] | doc["message"] | "";
+      lastScreenSummary = doc["screenSummary"] | "";
+    } else {
+      reply = res;
+    }
     reply.trim();
+    lastScreenSummary.trim();
     Serial.println("[CHAT] " + reply.substring(0, 80));
+    if (lastScreenSummary.length() > 0) {
+      Serial.println("[CHAT] ScreenSummary: " + lastScreenSummary);
+    }
   }
   http.end();
   return reply;
@@ -1016,205 +1119,366 @@ void runConversationStep(String voiceInput) {
 
   switch (convStep) {
 
-    // STEP 1: Greeting + ask language
+    // ------------------------------------------------------------------------
+    // STEP 1: GREETING & ASK COMFORTABLE LANGUAGE (IN HINDI)
+    // ------------------------------------------------------------------------
     case STEP_GREET: {
-      for(int i=0;i<8;i++){ drawRobotFace(FACE_GREET,"Namaskar"); delay(120); }  // animate greeting
-      String g = (activeLang=="hi")
-        ? "Namaskar! Main JANSEVA.AI hoon. Kaunsi bhasha mein baat karein? Hindi, English, Marathi ya Gujarati boliye."
-        : "Welcome! I am JANSEVA.AI. Please say your preferred language: Hindi, English, Marathi, or Gujarati.";
-      drawRobotFace(FACE_SPEAK, "Bhasha");
-      speakText(g, activeLang);
+      showScreenCard("JANSEVA AI KIOSK",
+                     "Namaste! Swagat hai.\nBhasha chuniye:\nHindi, Marathi, English",
+                     "[🔊 Suniye...]");
+
+      String g = "Namaste! JanSeva Kendra mein aapka swagat hai. Aap kis bhasha mein baat karna chahte hain? Hindi, Marathi, ya English boliye.";
+      speakText(g, "hi");
+
+      showScreenCard("BHASHA CHUNIYE",
+                     "Bhasha boliye:\nHindi / Marathi / English\n\nMic chalu hai...",
+                     "[🎙️ Boliye...]");
+
       convStep = STEP_LANG_CHOICE;
-      delay(300);
-      drawRobotFace(FACE_LISTEN, "Bhasha?");
-      if (recordVoice(5)) { String t=sendAudioForSTT(); if(t.length()>0) runConversationStep(t); }
+      delay(200);
+      if (recordVoice(5)) {
+        String t = sendAudioForSTT();
+        if (t.length() > 0) runConversationStep(t);
+        else {
+          speakText("Bhasha sunai nahi di. Theek hai, hum Hindi mein baat karenge.", "hi");
+          activeLang = "hi";
+          convStep = STEP_ASK_NAME;
+          delay(200);
+          runConversationStep("");
+        }
+      } else {
+        activeLang = "hi";
+        convStep = STEP_ASK_NAME;
+        delay(200);
+        runConversationStep("");
+      }
       break;
     }
 
-    // STEP 2: Detect language
+    // ------------------------------------------------------------------------
+    // STEP 2: DETECT LANGUAGE & CONFIRM IN USER'S CHOSEN LANGUAGE
+    // ------------------------------------------------------------------------
     case STEP_LANG_CHOICE: {
-      if      (vi.indexOf("english")>=0||vi.indexOf("angrezi")>=0) activeLang="en";
-      else if (vi.indexOf("marathi")>=0)  activeLang="mr";
-      else if (vi.indexOf("gujarati")>=0) activeLang="gu";
-      else if (vi.indexOf("tamil")>=0)    activeLang="ta";
-      else if (vi.indexOf("telugu")>=0)   activeLang="te";
-      else if (vi.indexOf("bengali")>=0||vi.indexOf("bangla")>=0) activeLang="bn";
-      else if (vi.indexOf("punjabi")>=0)  activeLang="pa";
-      else if (vi.indexOf("kannada")>=0)  activeLang="kn";
-      else if (vi.indexOf("malayalam")>=0)activeLang="ml";
-      else if (vi.indexOf("urdu")>=0)     activeLang="ur";
-      else activeLang="hi";
+      if      (vi.indexOf("marathi") >= 0 || vi.indexOf("मराठी") >= 0) activeLang = "mr";
+      else if (vi.indexOf("english") >= 0 || vi.indexOf("angrezi") >= 0 || vi.indexOf("इंग्रजी") >= 0) activeLang = "en";
+      else if (vi.indexOf("gujarati") >= 0 || vi.indexOf("ગુજરાતી") >= 0) activeLang = "gu";
+      else if (vi.indexOf("tamil") >= 0)    activeLang = "ta";
+      else if (vi.indexOf("telugu") >= 0)   activeLang = "te";
+      else if (vi.indexOf("bengali") >= 0 || vi.indexOf("bangla") >= 0) activeLang = "bn";
+      else if (vi.indexOf("punjabi") >= 0)  activeLang = "pa";
+      else if (vi.indexOf("kannada") >= 0)  activeLang = "kn";
+      else if (vi.indexOf("malayalam") >= 0)activeLang = "ml";
+      else if (vi.indexOf("urdu") >= 0)     activeLang = "ur";
+      else activeLang = "hi";
 
-      String c = (activeLang=="hi") ? "Theek hai, Hindi mein baat karenge." :
-                 (activeLang=="en") ? "Great, we will speak in English." :
-                 (activeLang=="mr") ? "Thik ahe! Marathi madhe bolto." :
-                                     "Understood! Language: " + activeLang;
-      speakText(c, activeLang);
-      convStep=STEP_ASK_NAME; delay(200); runConversationStep("");
+      String langName = (activeLang == "mr") ? "Marathi" : (activeLang == "en") ? "English" : (activeLang == "gu") ? "Gujarati" : "Hindi";
+      showScreenCard("BHASHA SET",
+                     "Bhasha: " + langName + "\n\nAb aage ki baat\naapki bhasha mein!",
+                     "[✓ Language Set]");
+
+      String conf = (activeLang == "mr") ? "Thik ahe, apan Marathi madhe bolu." :
+                    (activeLang == "en") ? "Great! We will converse in English." :
+                    (activeLang == "gu") ? "Saras! Have tame Gujarati ma vaat karishu." :
+                                           "Theek hai, ab hum Hindi mein baat karenge.";
+      speakText(conf, activeLang);
+
+      convStep = STEP_ASK_NAME;
+      delay(200);
+      runConversationStep("");
       break;
     }
 
-    // STEP 3: Ask name
+    // ------------------------------------------------------------------------
+    // STEP 3: ASK NAME IN CITIZEN'S LANGUAGE
+    // ------------------------------------------------------------------------
     case STEP_ASK_NAME: {
-      String q = (activeLang=="hi") ? "Aapka pura naam kya hai?" :
-                 (activeLang=="mr") ? "Tumcha pura nav kay aahe?" :
-                                     "What is your full name?";
-      drawRobotFace(FACE_SPEAK, "Naam?");
+      String q = (activeLang == "mr") ? "Krupaya tumche purna nav sanga?" :
+                 (activeLang == "en") ? "Please tell me your full name?" :
+                 (activeLang == "gu") ? "Tamaru puru naam shu che?" :
+                                        "Aapka shubh naam kya hai?";
+
+      showScreenCard("AAPKA NAAM?",
+                     "Kripya aapka pura\nnaam boliye.\nMic chalu hai...",
+                     "[🔊 Suniye...]");
+
       speakText(q, activeLang);
-      convStep=STEP_GET_NAME; delay(300);
-      drawRobotFace(FACE_LISTEN, "Naam");
-      if(recordVoice(6)){String t=sendAudioForSTT();if(t.length()>0)runConversationStep(t);}
-      break;
-    }
 
-    // STEP 4: Capture name
-    case STEP_GET_NAME: {
-      if(vi.length()<2){
-        speakText((activeLang=="hi")?"Naam nahi mila, dobara boliye.":"Name not heard, please repeat.",activeLang);
-        convStep=STEP_ASK_NAME; delay(200); runConversationStep(""); break;
-      }
-      userName=voiceInput; userName[0]=toupper(userName[0]);
-      String ack=(activeLang=="hi")?"Dhanyawaad, "+userName+" ji.":
-                 (activeLang=="mr")?"Dhanyavad, "+userName+".":
-                 "Thank you, "+userName+".";
-      speakText(ack,activeLang);
-      convStep=STEP_ASK_PHONE; delay(200); runConversationStep(""); break;
-    }
+      showScreenCard("AAPKA NAAM?",
+                     "Kripya aapka pura\nnaam boliye.\nMic chalu hai...",
+                     "[🎙️ Boliye...]");
 
-    // STEP 5: Ask phone
-    case STEP_ASK_PHONE: {
-      String q=(activeLang=="hi")?userName+" ji, apna 10 angka ka mobile number boliye.":
-               (activeLang=="mr")?userName+", tumcha 10 ankach mobile number sanga.":
-               userName+", please say your 10-digit mobile number.";
-      drawRobotFace(FACE_SPEAK, "Number?");
-      speakText(q,activeLang);
-      convStep=STEP_GET_PHONE; delay(300);
-      drawRobotFace(FACE_LISTEN, "Number");
-      if(recordVoice(8)){String t=sendAudioForSTT();if(t.length()>0)runConversationStep(t);}
-      break;
-    }
-
-    // STEP 6: Capture phone
-    case STEP_GET_PHONE: {
-      String digits="";
-      for(char c:voiceInput) if(isDigit(c)) digits+=c;
-      if(digits.length()<6){
-        speakText((activeLang=="hi")?"Number sahi nahi mila, dobara boliye.":
-                                    "Number not captured, please repeat.",activeLang);
-        convStep=STEP_ASK_PHONE; delay(200); runConversationStep(""); break;
-      }
-      userPhone=digits;
-      String ack=(activeLang=="hi")?"Number note ho gaya. Ab apni samasya boliye.":
-                 (activeLang=="mr")?"Number note jhala. Tumchi samasya sanga.":
-                 "Got your number. Please tell me your problem.";
-      speakText(ack,activeLang);
-      convStep=STEP_ASK_PROBLEM; delay(200); runConversationStep(""); break;
-    }
-
-    // STEP 7: Ask problem
-    case STEP_ASK_PROBLEM: {
-      String q=(activeLang=="hi")?"Boliye, aapka kya sawal hai ya koi sarkari yojana ke baare mein jaankaari chahiye?":
-               (activeLang=="mr")?"Sanga, tumcha prashna kai aahe kinva koni sarkari yojnebaddal mahiti havi aahe?":
-               "Please tell me your question or which government scheme you want to know about.";
-      drawRobotFace(FACE_SPEAK, "Sawal?");
-      speakText(q,activeLang);
-      convStep=STEP_GET_PROBLEM; delay(300);
-      drawRobotFace(FACE_LISTEN, "Boliye!");
-      if(recordVoice(MAX_REC_SECS)){String t=sendAudioForSTT();if(t.length()>0)runConversationStep(t);}
-      break;
-    }
-
-    // STEP 8: Process problem -> AI
-    case STEP_GET_PROBLEM: {
-      if(vi.length()<3){
-        speakText((activeLang=="hi")?"Sawal sahi nahi mila, dobara boliye.":"Could not understand, please repeat.",activeLang);
-        convStep=STEP_ASK_PROBLEM; delay(200); runConversationStep(""); break;
-      }
-      userProblem=voiceInput;
-      convStep=STEP_THINKING;
-      drawRobotFace(FACE_THINK, "Soch...");
-      String th=(activeLang=="hi")?"Ek minute, main aapka jawab dhundh raha hoon.":
-                (activeLang=="mr")?"Ek minute, mi jawab shodhato ahe.":
-                "One moment, finding the best answer for you.";
-      drawRobotFace(FACE_SPEAK, "Jawab");
-      speakText(th,activeLang);
-      // Keep animating thinking face while AI call is in progress
-      for(int i=0;i<5;i++){ drawRobotFace(FACE_THINK,"Soch..."); delay(300); }
-
-      String ctx="User: "+userName+". Phone: "+userPhone+". Location: "+cfg_location+". Device: "+cfg_devid+". "
-                +"Respond ONLY in language code: "+activeLang+". "
-                +"Keep answer SHORT (3-5 bullet points) suitable for voice reading. "
-                +"Focus on government schemes relevant to location: "+cfg_location;
-
-      String ans=sendChatMessage(userProblem,ctx);
-      if(ans.length()==0)
-        ans=(activeLang=="hi")?"Maafi, server se jawab nahi mila. Baad mein try karein.":
-            "Sorry, could not get server response. Please try again later.";
-      lastSolution=ans;
-      convStep=STEP_SPEAK_SOLUTION; delay(200); runConversationStep(""); break;
-    }
-
-    // STEP 9: Speak solution
-    case STEP_SPEAK_SOLUTION: {
-      drawRobotFace(FACE_SPEAK, userName.substring(0,8));
-      String pre=(activeLang=="hi")?userName+" ji, suniye. ":
-                 (activeLang=="mr")?userName+", aika. ":
-                 userName+", here is your answer. ";
-      speakText(pre+lastSolution,activeLang);
-      convStep=STEP_ASK_REPEAT; delay(500); runConversationStep(""); break;
-    }
-
-    // STEP 10: Ask to repeat
-    case STEP_ASK_REPEAT: {
-      String q=(activeLang=="hi")?"Kya aap jawab dobara sunna chahenge? Haan boliye ya touch karein.":
-               (activeLang=="mr")?"Jawab parath aikaycha aahe ka? Haan bola kinva touch kara.":
-               "Would you like me to repeat the answer? Say yes or touch.";
-      drawRobotFace(FACE_SPEAK, "Dobara?");
-      speakText(q,activeLang);
-      delay(300);
-      drawRobotFace(FACE_LISTEN, "Haan/Na");
-      if(recordVoice(4)){
-        String r=sendAudioForSTT(); r.toLowerCase();
-        const char* YES[]={
-          "haan","ha","yes","repeat","dobara","phir","aur","parath"
-        };
-        if(containsAny(r,YES,8)){ drawRobotFace(FACE_SPEAK,"Suniye"); speakText(lastSolution,activeLang); }
-      }
-      convStep=STEP_ASK_MORE; delay(400); runConversationStep(""); break;
-    }
-
-    // STEP 11: Ask for more help
-    case STEP_ASK_MORE: {
-      String q=(activeLang=="hi")?"Kya aapko koi aur madad chahiye? Haan boliye ya touch karein. Nahi to jaiye, Dhanyawaad!":
-               (activeLang=="mr")?"Tumhala aajun madad pahije ka? Haan bola kinva touch kara. Nahi tar jaava.":
-               "Do you need more help? Say yes or touch. Otherwise, thank you and goodbye!";
-      drawRobotFace(FACE_SPEAK, "Kuch aur?");
-      speakText(q,activeLang);
-      delay(300);
-      drawRobotFace(FACE_LISTEN, "Haan/Na");
-      if(recordVoice(4)){
-        String r=sendAudioForSTT(); r.toLowerCase();
-        const char* YES[]={
-          "haan","ha","yes","aur","more","help","kuch","problem","sawal"
-        };
-        if(containsAny(r,YES,9)){
-          convStep=STEP_ASK_PROBLEM; runConversationStep(""); break;
+      convStep = STEP_GET_NAME;
+      delay(200);
+      if (recordVoice(5)) {
+        String t = sendAudioForSTT();
+        if (t.length() > 0) runConversationStep(t);
+        else {
+          speakText((activeLang == "mr") ? "Nav aikayala aale nahi, punha sanga." : "Naam sunai nahi diya, kripya dobara boliye.", activeLang);
+          convStep = STEP_ASK_NAME;
+          delay(200);
+          runConversationStep("");
         }
       }
-      // End session
-      String bye=(activeLang=="hi")?"Bahut bahut dhanyawaad, "+userName+" ji. Aapki seva karke khushi hui. Jai Hind!":
-                 (activeLang=="mr")?"Khup dhanyavad, "+userName+". Seva karta aanand jhala. Jai Hind!":
-                 "Thank you very much, "+userName+"! Pleasure serving you. Jai Hind!";
-      drawRobotFace(FACE_BYE, userName.substring(0,8));
-      speakText(bye,activeLang);
-      // Animate goodbye for 3 seconds
-      for(int i=0;i<12;i++){ drawRobotFace(FACE_BYE, userName.substring(0,8)); delay(250); }
-      convStep=STEP_IDLE;
-      drawRobotFace(FACE_IDLE, cfg_location.substring(0,9));
       break;
     }
 
-    default: convStep=STEP_IDLE; break;
+    // ------------------------------------------------------------------------
+    // STEP 4: CAPTURE & ACKNOWLEDGE CITIZEN NAME
+    // ------------------------------------------------------------------------
+    case STEP_GET_NAME: {
+      if (vi.length() < 2) {
+        speakText((activeLang == "mr") ? "Nav spashta aale nahi, punha sanga." : "Naam spasht nahi mila, kripya dobara boliye.", activeLang);
+        convStep = STEP_ASK_NAME;
+        delay(200);
+        runConversationStep("");
+        break;
+      }
+
+      userName = (sttDisplayText.length() > 0) ? sttDisplayText : voiceInput;
+      userName[0] = toupper(userName[0]);
+
+      showScreenCard("CITIZEN NAME",
+                     "Namaste,\n" + userName + " ji!\nJanSeva me swagat hai.",
+                     "[✓ Verified]");
+
+      String ack = (activeLang == "mr") ? "Namaskar " + userName + "! Swagat ahe." :
+                   (activeLang == "en") ? "Welcome " + userName + "!" :
+                   (activeLang == "gu") ? "Namaste " + userName + " bhai!" :
+                                          "Namaste " + userName + " ji!";
+      speakText(ack, activeLang);
+
+      convStep = STEP_ASK_PHONE;
+      delay(200);
+      runConversationStep("");
+      break;
+    }
+
+    // ------------------------------------------------------------------------
+    // STEP 5: ASK 10-DIGIT MOBILE NUMBER IN CITIZEN'S LANGUAGE
+    // ------------------------------------------------------------------------
+    case STEP_ASK_PHONE: {
+      String q = (activeLang == "mr") ? userName + ", tumcha 10 ankacha mobile number sanga." :
+                 (activeLang == "en") ? userName + ", please say your 10-digit mobile number." :
+                 (activeLang == "gu") ? userName + ", tamaro 10 ankno mobile number bolo." :
+                                        userName + " ji, apna 10 ankon ka mobile number boliye.";
+
+      showScreenCard("MOBILE NUMBER?",
+                     userName + " ji,\n10 digits boliye:\ne.g. 9876543210",
+                     "[🔊 Suniye...]");
+
+      speakText(q, activeLang);
+
+      showScreenCard("MOBILE NUMBER?",
+                     userName + " ji,\n10 digits boliye:\ne.g. 9876543210",
+                     "[🎙️ 10 Digits...]");
+
+      convStep = STEP_GET_PHONE;
+      delay(200);
+      if (recordVoice(8)) {
+        String t = sendAudioForSTT();
+        if (t.length() > 0) runConversationStep(t);
+        else {
+          speakText((activeLang == "mr") ? "Mobile number aala nahi, punha sanga." : "Number sunai nahi diya, kripya dobara boliye.", activeLang);
+          convStep = STEP_ASK_PHONE;
+          delay(200);
+          runConversationStep("");
+        }
+      }
+      break;
+    }
+
+    // ------------------------------------------------------------------------
+    // STEP 6: CAPTURE & ACKNOWLEDGE MOBILE NUMBER
+    // ------------------------------------------------------------------------
+    case STEP_GET_PHONE: {
+      String digits = "";
+      for (char c : voiceInput) if (isDigit(c)) digits += c;
+
+      if (digits.length() < 6) {
+        speakText((activeLang == "mr") ? "Number barobar nahi aala, krupaya 10 ank punha sanga." :
+                  (activeLang == "en") ? "Mobile number invalid, please repeat 10 digits." :
+                                         "Number sahi nahi mila, kripya apna 10 ankon ka number dobara boliye.", activeLang);
+        convStep = STEP_ASK_PHONE;
+        delay(200);
+        runConversationStep("");
+        break;
+      }
+
+      userPhone = digits;
+      showScreenCard("MOBILE VERIFIED",
+                     "Mob: " + userPhone + "\nRecord registered\nin JanSeva Portal.",
+                     "[✓ Note Ho Gaya]");
+
+      String ack = (activeLang == "mr") ? "Tumcha number note jhala: " + userPhone :
+                   (activeLang == "en") ? "Your mobile number is noted: " + userPhone :
+                                          "Aapka number note ho gaya hai: " + userPhone;
+      speakText(ack, activeLang);
+
+      convStep = STEP_ASK_PROBLEM;
+      delay(200);
+      runConversationStep("");
+      break;
+    }
+
+    // ------------------------------------------------------------------------
+    // STEP 7: ASK CITIZEN QUERY / PROBLEM IN THEIR LANGUAGE
+    // ------------------------------------------------------------------------
+    case STEP_ASK_PROBLEM: {
+      String q = (activeLang == "mr") ? "Sanga " + userName + ", tumhala konya sarkari yojnebaddal mahiti havi ahe?" :
+                 (activeLang == "en") ? "Please tell me " + userName + ", what government scheme or service can I help you with?" :
+                                        "Bataiye " + userName + " ji, aapko kis sarkari yojana ya samasya ke baare mein jaankari chahiye?";
+
+      showScreenCard("AAPKA SAWAL?",
+                     "Bataiye " + userName + " ji,\nkya janna hai?\nMic chalu hai...",
+                     "[🔊 Suniye...]");
+
+      speakText(q, activeLang);
+
+      showScreenCard("AAPKA SAWAL?",
+                     "Bataiye " + userName + " ji,\nkya janna hai?\nMic chalu hai...",
+                     "[🎙️ Boliye...]");
+
+      convStep = STEP_GET_PROBLEM;
+      delay(200);
+      if (recordVoice(MAX_REC_SECS)) {
+        String t = sendAudioForSTT();
+        if (t.length() > 0) runConversationStep(t);
+        else {
+          speakText((activeLang == "mr") ? "Prashna aaikayala aale nahi, punha bola." : "Aapka sawal sunai nahi diya, kripya dobara boliye.", activeLang);
+          convStep = STEP_ASK_PROBLEM;
+          delay(200);
+          runConversationStep("");
+        }
+      }
+      break;
+    }
+
+    // ------------------------------------------------------------------------
+    // STEP 8: DISPLAY USER QUERY ON SCREEN & PROCESS WITH GEMINI AI
+    // ------------------------------------------------------------------------
+    case STEP_GET_PROBLEM: {
+      if (vi.length() < 3) {
+        speakText((activeLang == "mr") ? "Prashna spashta nahi aala, punha bola." : "Sawal samajh nahi aaya, kripya dobara boliye.", activeLang);
+        convStep = STEP_ASK_PROBLEM;
+        delay(200);
+        runConversationStep("");
+        break;
+      }
+
+      userProblem = voiceInput;
+      String dispProblem = (sttDisplayText.length() > 0) ? sttDisplayText : userProblem;
+
+      // Crucial: DISPLAY WHAT THE CITIZEN ASKED ON THE SCREEN!
+      showScreenCard("AAPNE PUCHA:",
+                     dispProblem,
+                     "[⏳ Soch raha hai...]");
+
+      String th = (activeLang == "mr") ? "Ek minute, mi uttar shodhat ahe." :
+                  (activeLang == "en") ? "One moment, finding the best answer for you." :
+                                         "Ek minute, main aapka jawab dhundh rahi hoon.";
+      speakText(th, activeLang);
+
+      String ctx = "User: " + userName + ". Phone: " + userPhone + ". Location: " + cfg_location + ". Device: " + cfg_devid + ". "
+                 + "Respond ONLY in language: " + activeLang + ". "
+                 + "Keep answer SHORT (3-5 bullet points) suitable for voice reading and OLED screen. "
+                 + "Focus on government schemes relevant to location: " + cfg_location;
+
+      String ans = sendChatMessage(userProblem, ctx);
+      if (ans.length() == 0) {
+        ans = (activeLang == "mr") ? "Kshamasva, server kadun uttar aale nahi. Krupaya kahi velane prayatna kara." :
+              (activeLang == "en") ? "Sorry, could not connect to JanSeva server. Please try again." :
+                                     "Maafi, server se jawab nahi mila. Kripya thodi der baad try karein.";
+      }
+      lastSolution = ans;
+
+      convStep = STEP_SPEAK_SOLUTION;
+      delay(200);
+      runConversationStep("");
+      break;
+    }
+
+    // ------------------------------------------------------------------------
+    // STEP 9: DISPLAY ANSWER ON SCREEN & SPEAK VIA PAM8403 SPEAKER
+    // ------------------------------------------------------------------------
+    case STEP_SPEAK_SOLUTION: {
+      String dispAns = (lastScreenSummary.length() > 0) ? lastScreenSummary : lastSolution;
+
+      // DISPLAY ANSWER ON SCREEN
+      showScreenCard("JANSEVA JAWAB",
+                     dispAns,
+                     "[🔊 Bol raha hai...]");
+
+      // SPEAK ANSWER VIA SPEAKER
+      speakText(lastSolution, activeLang);
+
+      convStep = STEP_ASK_MORE;
+      delay(400);
+      runConversationStep("");
+      break;
+    }
+
+    // ------------------------------------------------------------------------
+    // STEP 10: ASK IF CITIZEN NEEDS MORE HELP (OR TOUCH SENSOR CONTINUATION)
+    // ------------------------------------------------------------------------
+    case STEP_ASK_MORE: {
+      String q = (activeLang == "mr") ? "Tumhala ajun konya yojnebaddal mahiti havi ahe ka? Haan bola kinva touch kara." :
+                 (activeLang == "en") ? "Do you need more information about any other scheme? Say yes or touch sensor." :
+                                        "Kya aapko kisi aur yojana ki jaankari chahiye? Haan boliye ya touch sensor dabayein.";
+
+      showScreenCard("KUCH AUR MADAD?",
+                     "Haan boliye ya\ntouch sensor dabayein\nSawal dobara puchein",
+                     "[🎙️ / Touch Sensor]");
+
+      speakText(q, activeLang);
+
+      delay(200);
+      if (recordVoice(5)) {
+        String r = sendAudioForSTT();
+        r.toLowerCase();
+        const char* YES[] = {
+          "haan", "ha", "yes", "aur", "more", "help", "kuch", "problem", "sawal", "ho", "ahe", "yojana"
+        };
+        const char* NO[] = {
+          "nahi", "na", "no", "bye", "bas", "kahi", "nako"
+        };
+
+        if (containsAny(r, YES, 12)) {
+          // Continuous session: jump straight to ask question without re-asking name/mobile!
+          convStep = STEP_ASK_PROBLEM;
+          runConversationStep("");
+          break;
+        } else if (r.length() > 5 && !containsAny(r, NO, 7)) {
+          // User asked their next question directly!
+          convStep = STEP_GET_PROBLEM;
+          runConversationStep(r);
+          break;
+        }
+      }
+
+      // Citizen is done: Warm goodbye in their language!
+      String bye = (activeLang == "mr") ? "Khup dhanyavad, " + userName + "! JanSeva Kendra madhe aalyabaddal aabhar. Jai Hind!" :
+                   (activeLang == "en") ? "Thank you very much, " + userName + "! It was a pleasure serving you. Jai Hind!" :
+                                          "Bahut dhanyawaad, " + userName + " ji! JanSeva Kendra me aane ke liye shukriya. Jai Hind!";
+
+      showScreenCard("DHANYAWAAD!",
+                     "Aapki seva karke\nkhushi hui, " + userName + " ji!\n\nJai Hind! 🇮🇳",
+                     "[Session Complete]");
+
+      speakText(bye, activeLang);
+
+      for (int i = 0; i < 10; i++) {
+        drawRobotFace(FACE_BYE, userName.substring(0, 8));
+        delay(250);
+      }
+
+      convStep = STEP_IDLE;
+      drawRobotFace(FACE_IDLE, cfg_location.substring(0, 9));
+      break;
+    }
+
+    default:
+      convStep = STEP_IDLE;
+      break;
   }
 }
 
@@ -1275,7 +1539,16 @@ void startPortal() {
   portalServer.onNotFound(handlePortalRedirect);
   portalServer.begin();
 
-  drawRobotFace(FACE_SETUP, "Setup");
+  // Attention chime for first wake up WiFi setup prompt
+  playTone(500, 150);
+  delay(50);
+  playTone(400, 150);
+  delay(50);
+  playTone(600, 250);
+
+  showScreenCard("WIFI SETUP MODE",
+                 "Connect Phone to WiFi:\nJANSEVA_SETUP\n\nOpen Browser:\n192.168.4.1",
+                 "[Hotspot Active]");
 }
 
 void handlePortalRoot() {
