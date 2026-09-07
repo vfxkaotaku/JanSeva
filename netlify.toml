@@ -1,29 +1,29 @@
-﻿# 🇮🇳 JANSEVA.AI — Netlify Configuration
+# JANSEVA.AI — Netlify Configuration
 
 [build]
-  publish = .
+  publish = "."
 
 # Security and caching headers
 [[headers]]
-  for = /*
+  for = "/*"
   [headers.values]
-    X-Frame-Options = DENY
-    X-XSS-Protection = 1; mode=block
-    X-Content-Type-Options = nosniff
-    Referrer-Policy = strict-origin-when-cross-origin
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
 
 [[headers]]
-  for = /styles/*
+  for = "/styles/*"
   [headers.values]
-    Cache-Control = public, max-age=31536000, immutable
+    Cache-Control = "public, max-age=31536000, immutable"
 
 [[headers]]
-  for = /services/*
+  for = "/services/*"
   [headers.values]
-    Cache-Control = public, max-age=3600
+    Cache-Control = "public, max-age=3600"
 
 # SPA routing fallback: all page requests load index.html
 [[redirects]]
-  from = /*
-  to = /index.html
+  from = "/*"
+  to = "/index.html"
   status = 200
