@@ -1,4 +1,10 @@
-const IS_GITHUB_PAGES = window.location.hostname.includes('github.io') || window.location.protocol === 'file:';
+const IS_STATIC_HOST =
+  window.location.hostname.includes('github.io') ||
+  window.location.hostname.includes('netlify.app') ||
+  window.location.hostname.includes('vercel.app') ||
+  window.location.hostname.includes('pages.dev') ||
+  window.location.hostname.includes('render.com') ||
+  window.location.protocol === 'file:';
 
 /**
  * Get active Backend API Base URL.
@@ -6,7 +12,7 @@ const IS_GITHUB_PAGES = window.location.hostname.includes('github.io') || window
  * 1. User configured custom backend URL (localStorage: 'janseva_backend_url')
  * 2. Localhost dev server (http://localhost:3000/api)
  * 3. Relative '/api' (if hosted on full server or reverse proxy)
- * 4. null (if static GitHub Pages with no backend linked yet)
+ * 4. null (if static host like Netlify / GitHub Pages with no backend linked yet)
  */
 function getApiBase() {
   const custom = localStorage.getItem('janseva_backend_url');
@@ -17,14 +23,19 @@ function getApiBase() {
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
     return `http://localhost:3000/api`;
   }
-  if (IS_GITHUB_PAGES) {
+  if (IS_STATIC_HOST) {
     return null;
   }
   return '/api';
 }
 
 function getBackendUrl() {
-  return localStorage.getItem('janseva_backend_url') || (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'http://localhost:3000' : '');
+  const custom = localStorage.getItem('janseva_backend_url');
+  if (custom && custom.trim()) return custom.trim();
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:3000';
+  }
+  return '';
 }
 
 function setBackendUrl(url) {
@@ -43,7 +54,8 @@ function isLiveBackend() {
 
 const DEFAULT_TIMEOUT_MS = 60000;
 
-const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
+// High performance Gemini models with automatic fallback
+const CANDIDATE_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
 
 const SYSTEM_PROMPT = `You are JANSEVA.AI — an official AI citizen-service assistant for the Government of India.
 CORE RULES:
@@ -52,12 +64,12 @@ CORE RULES:
 3. For schemes: list (1) Key Benefit/Amount, (2) Who is eligible, (3) Official portal/where to apply.`;
 
 /**
- * Get or prompt user for Gemini API Key on GitHub Pages / Netlify (stored in local browser only).
+ * Get or prompt user for Gemini API Key on Netlify / GitHub Pages (stored in local browser only).
  */
 function getClientApiKey() {
   let key = localStorage.getItem('janseva_gemini_api_key');
   if (!key) {
-    key = window.prompt('🔑 JANSEVA.AI (Netlify / GitHub Pages)\n\nPlease enter your Google Gemini API Key:\n(Saved safely in your browser LocalStorage only)');
+    key = window.prompt('🔑 JANSEVA.AI (Netlify / Static Hosting)\n\nPlease enter your Google Gemini API Key:\n(Saved safely in your browser LocalStorage only)');
     if (key && key.trim()) {
       key = key.trim();
       localStorage.setItem('janseva_gemini_api_key', key);
@@ -67,14 +79,13 @@ function getClientApiKey() {
 }
 
 /**
- * Direct Gemini REST call for GitHub Pages static deployment.
+ * Direct Gemini REST call for Netlify / GitHub Pages static deployment.
  */
 async function directGeminiChat(message, language = 'auto', conversationId = null) {
   const apiKey = getClientApiKey();
   if (!apiKey) {
-    throw new Error('Gemini API key is required. Please provide your API key to chat.');
+    throw new Error('🔑 Gemini API key is required. Please click Settings (⚙️) to enter your API key.');
   }
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${DEFAULT_MODEL}:generateContent?key=${apiKey}`;
 
   const langInstruction = language !== 'auto' ? `[Respond in ${language}]\n\n` : '';
   const payload = {
@@ -89,25 +100,42 @@ async function directGeminiChat(message, language = 'auto', conversationId = nul
     ]
   };
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
+  let lastError = null;
+  for (const modelName of CANDIDATE_MODELS) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error?.message || `Gemini error (${response.status})`);
+      const data = await response.json();
+      if (!response.ok) {
+        if (response.status === 404 || data.error?.message?.includes('not found') || data.error?.message?.includes('no longer available')) {
+          lastError = new Error(data.error?.message || `Model ${modelName} not found`);
+          continue;
+        }
+        throw new Error(data.error?.message || `Gemini error (${response.status})`);
+      }
+
+      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response';
+      return {
+        success: true,
+        reply,
+        language: language || 'hi',
+        conversationId: conversationId || `conv_${Date.now()}`,
+        timestamp: new Date().toISOString()
+      };
+    } catch (err) {
+      lastError = err;
+      if (!err.message?.includes('not found') && !err.message?.includes('no longer available') && !err.message?.includes('404')) {
+        throw err;
+      }
+    }
   }
 
-  const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response';
-  return {
-    success: true,
-    reply,
-    language: language || 'hi',
-    conversationId: conversationId || `conv_${Date.now()}`,
-    timestamp: new Date().toISOString()
-  };
+  throw lastError || new Error('Failed to communicate with Gemini API');
 }
 
 /**
@@ -116,7 +144,9 @@ async function directGeminiChat(message, language = 'auto', conversationId = nul
 async function apiFetch(endpoint, options = {}) {
   const base = getApiBase();
   if (!base) {
-    throw new Error('NO_BACKEND_SERVER');
+    const err = new Error('NO_BACKEND_SERVER');
+    err.code = 'NO_BACKEND_SERVER';
+    throw err;
   }
 
   const controller = new AbortController();
@@ -139,13 +169,16 @@ async function apiFetch(endpoint, options = {}) {
     if (contentType.includes('application/json')) {
       data = await response.json();
     } else {
-      const text = await response.text();
-      data = { error: { message: text || `Server error (HTTP ${response.status})` } };
+      // Returned HTML or non-JSON (e.g. Netlify 404 or SPA rewrite)
+      const err = new Error('Backend returned non-JSON response (possibly static host HTML).');
+      err.code = 'NO_BACKEND_SERVER';
+      err.status = response.status;
+      throw err;
     }
 
     if (!response.ok) {
       const err = new Error(data.error?.message || `Server error (${response.status})`);
-      err.code = data.error?.code || 'SERVER_ERROR';
+      err.code = data.error?.code || (response.status === 404 || response.status === 405 ? 'NO_BACKEND_SERVER' : 'SERVER_ERROR');
       err.status = response.status;
       err.serverData = data;
       throw err;
@@ -159,6 +192,10 @@ async function apiFetch(endpoint, options = {}) {
       const timeoutErr = new Error('Request timed out. Please check your connection and try again.');
       timeoutErr.code = 'TIMEOUT';
       throw timeoutErr;
+    }
+
+    if (err.code === 'NO_BACKEND_SERVER') {
+      throw err;
     }
 
     if (err.message === 'Failed to fetch' || err.message.includes('NetworkError') || err.message.includes('fetch')) {
@@ -178,14 +215,21 @@ async function apiFetch(endpoint, options = {}) {
  * @param {string|null} conversationId
  */
 async function sendMessage(message, language = 'auto', conversationId = null) {
+  const base = getApiBase();
+  // If static deployment without backend, use direct Gemini immediately
+  if (!base) {
+    return directGeminiChat(message, language, conversationId);
+  }
+
   try {
     return await apiFetch('/chat', {
       method: 'POST',
       body: JSON.stringify({ message, language, conversationId }),
     });
   } catch (err) {
-    // If running statically on GitHub Pages with no backend or backend is unreachable, fallback to direct Gemini
-    if (IS_GITHUB_PAGES || err.code === 'NETWORK_ERROR' || err.message === 'NO_BACKEND_SERVER') {
+    // If running statically on Netlify / GitHub Pages with no backend or backend is unreachable, fallback to direct Gemini
+    if (IS_STATIC_HOST || err.code === 'NETWORK_ERROR' || err.code === 'NO_BACKEND_SERVER' || err.message === 'NO_BACKEND_SERVER') {
+      console.warn('Backend unavailable, routing request directly via Gemini API:', err.message);
       return directGeminiChat(message, language, conversationId);
     }
     throw err;
@@ -236,12 +280,26 @@ async function setLanguage(conversationId, language) {
 async function healthCheck() {
   const base = getApiBase();
   if (!base) {
-    return { status: 'healthy', gemini: { ok: true, mode: 'github_pages_standalone' } };
+    return {
+      status: 'healthy',
+      gemini: {
+        ok: true,
+        mode: 'static_standalone',
+        hasClientKey: !!localStorage.getItem('janseva_gemini_api_key'),
+      }
+    };
   }
   try {
     return await apiFetch('/health');
   } catch (e) {
-    return { status: 'healthy', gemini: { ok: true, mode: 'client_direct' } };
+    return {
+      status: 'healthy',
+      gemini: {
+        ok: true,
+        mode: 'client_direct',
+        hasClientKey: !!localStorage.getItem('janseva_gemini_api_key'),
+      }
+    };
   }
 }
 

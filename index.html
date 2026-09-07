@@ -727,9 +727,13 @@ function formatAIContent(text) {
 // RENDER ERROR
 // ──────────────────────────────────────────────────────────────
 function renderError(message) {
+  let cleanMsg = message || 'Something went wrong. Please try again.';
+  if (typeof cleanMsg === 'string' && (cleanMsg.includes('<!DOCTYPE') || cleanMsg.includes('<html') || cleanMsg.includes('Page not found'))) {
+    cleanMsg = '⚠️ Backend service unavailable on static host. Standalone AI mode active. Please click Settings (⚙️) to configure your Google Gemini API Key.';
+  }
   const errDiv = document.createElement('div');
   errDiv.className = 'error-message';
-  errDiv.innerHTML = `<span>⚠️</span><span>${escapeHtml(message)}</span>`;
+  errDiv.innerHTML = `<span>⚠️</span><span>${escapeHtml(cleanMsg)}</span>`;
   chatBody.insertBefore(errDiv, typingIndicator);
 }
 
@@ -1451,10 +1455,16 @@ $('sidebar-toggle').addEventListener('click', toggleSidebar);
 // Settings: Configure Gemini API Key
 $('nav-settings').addEventListener('click', () => {
   const current = localStorage.getItem('janseva_gemini_api_key') || '';
-  const newKey = prompt('🔑 Configure Gemini API Key (Saved in browser LocalStorage):\n\nGet your free key from https://aistudio.google.com/app/apikey', current);
-  if (newKey !== null && newKey.trim()) {
-    localStorage.setItem('janseva_gemini_api_key', newKey.trim());
-    showToast('✅ Gemini API Key saved successfully!', 'success');
+  const newKey = prompt('🔑 Configure Google Gemini API Key:\n(Saved safely in your browser LocalStorage only)\n\nGet your free key from https://aistudio.google.com/app/apikey', current);
+  if (newKey !== null) {
+    if (newKey.trim()) {
+      localStorage.setItem('janseva_gemini_api_key', newKey.trim());
+      showToast('✅ Gemini API Key saved successfully!', 'success');
+    } else {
+      localStorage.removeItem('janseva_gemini_api_key');
+      showToast('Gemini API Key removed.', 'info');
+    }
+    checkHealth();
   }
 });
 
