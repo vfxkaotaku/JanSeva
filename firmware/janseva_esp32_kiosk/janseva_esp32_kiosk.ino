@@ -195,6 +195,7 @@ void resetConversation();
 bool containsAny(String haystack, const char* needles[], int count);
 void handleSerialCommand(String cmd);
 void runMicDiagnostic();
+void testServerConnection();
 
 // ============================================================================
 // SETUP
@@ -927,6 +928,8 @@ String sendAudioForSTT() {
   http.begin(url);
   http.addHeader("Content-Type", "audio/wav");
   http.addHeader("X-Device-Id",  cfg_devid);
+  http.addHeader("Bypass-Tunnel-Reminder", "true");
+  http.addHeader("User-Agent", "ESP32-JanSeva/2.0");
   http.setTimeout(25000);
 
   int code = http.POST(audioBuf, recBytes);
@@ -966,6 +969,8 @@ String sendChatMessage(String message, String ctx) {
   http.begin(cfg_server + "/api/device/text");
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Device-Id",  cfg_devid);
+  http.addHeader("Bypass-Tunnel-Reminder", "true");
+  http.addHeader("User-Agent", "ESP32-JanSeva/2.0");
   http.setTimeout(30000);
 
   StaticJsonDocument<1024> req;
@@ -1021,6 +1026,8 @@ void speakText(String text, String lang) {
   HTTPClient http;
   http.begin(cfg_server + "/api/device/tts");
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("Bypass-Tunnel-Reminder", "true");
+  http.addHeader("User-Agent", "ESP32-JanSeva/2.0");
   http.setTimeout(15000);
 
   StaticJsonDocument<512> req;
@@ -1128,6 +1135,8 @@ void sendHeartbeat() {
   HTTPClient http;
   http.begin(cfg_server + "/api/device/heartbeat");
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("Bypass-Tunnel-Reminder", "true");
+  http.addHeader("User-Agent", "ESP32-JanSeva/2.0");
   http.setTimeout(5000);
 
   StaticJsonDocument<256> doc;
@@ -1562,7 +1571,43 @@ void handleSerialCommand(String cmd) {
     return;
   }
 
-  // 4. Wake up conversation (identical to touching TTP223 sensor)
+  // 4. Change Server URL (e.g. "server https://janseva-kiosk-live.loca.lt" or "server http://10.111.125.210:3000")
+  if (cmd.startsWith("server ") || cmd.startsWith("url ")) {
+    int spaceIdx = cmd.indexOf(' ');
+    String newUrl = cmd.substring(spaceIdx + 1);
+    newUrl.trim();
+    if (newUrl.length() > 0) {
+      if (newUrl.endsWith("/")) newUrl = newUrl.substring(0, newUrl.length() - 1);
+      cfg_server = newUrl;
+      prefs.putString("server", cfg_server);
+      Serial.println("[CMD] Server URL updated to: " + cfg_server);
+      testServerConnection();
+      return;
+    }
+  }
+
+  // 5. Ping / Test Server Connection
+  if (cmd.equalsIgnoreCase("ping") || cmd.equalsIgnoreCase("test") || cmd.equalsIgnoreCase("status") || cmd.equalsIgnoreCase("server")) {
+    testServerConnection();
+    return;
+  }
+
+  // 6. Device Info (WiFi, IP, Server URL, RSSI, Heap)
+  if (cmd.equalsIgnoreCase("info") || cmd.equalsIgnoreCase("ip")) {
+    Serial.println("\n==========================================");
+    Serial.println("[DEVICE INFO]");
+    Serial.println("  WiFi SSID:   " + cfg_ssid);
+    Serial.println("  ESP32 IP:    " + WiFi.localIP().toString());
+    Serial.println("  Server URL:  " + cfg_server);
+    Serial.println("  Device ID:   " + cfg_devid);
+    Serial.println("  Location:    " + cfg_location);
+    Serial.println("  Signal RSSI: " + String(WiFi.RSSI()) + " dBm");
+    Serial.println("  Free Heap:   " + String(ESP.getFreeHeap()) + " bytes");
+    Serial.println("==========================================\n");
+    return;
+  }
+
+  // 7. Wake up conversation (identical to touching TTP223 sensor)
   if (cmd.equalsIgnoreCase("start") || cmd.equalsIgnoreCase("touch") || cmd.equalsIgnoreCase("wake") || cmd.equalsIgnoreCase("hi") || cmd.equalsIgnoreCase("namaste")) {
     Serial.println("[CMD] Wake up command received via Serial! Starting kiosk...");
     playTone(784, 80); delay(20); playTone(1046, 120);
@@ -1572,7 +1617,7 @@ void handleSerialCommand(String cmd) {
     return;
   }
 
-  // 5. If kiosk is in active conversation, feed this typed string as the answer to the current step!
+  // 8. If kiosk is in active conversation, feed this typed string as the answer to the current step!
   if (convStep != STEP_IDLE) {
     Serial.println("[CMD] Answer received for current step: " + cmd);
     sttDisplayText = cmd;
@@ -1580,7 +1625,7 @@ void handleSerialCommand(String cmd) {
     return;
   }
 
-  // 6. Direct citizen question from idle (e.g. user typed "PM Kisan Yojana")
+  // 9. Direct citizen question from idle (e.g. user typed "PM Kisan Yojana")
   Serial.println("[CMD] Direct question received: " + cmd);
   playTone(880, 80);
   resetConversation();
@@ -1588,6 +1633,42 @@ void handleSerialCommand(String cmd) {
   userPhone = "9999999999";
   convStep = STEP_GET_PROBLEM;
   runConversationStep(cmd);
+}
+
+// ============================================================================
+// TEST SERVER CONNECTION
+// ============================================================================
+void testServerConnection() {
+  Serial.println("\n[SERVER TEST] Testing connection to: " + cfg_server + "/api/health");
+  showScreenCard("SERVER TEST", "Checking server:\n" + cfg_server.substring(0, 20) + "...\nWait...", "[Testing Server]");
+
+  HTTPClient http;
+  http.begin(cfg_server + "/api/health");
+  http.addHeader("Bypass-Tunnel-Reminder", "true");
+  http.addHeader("User-Agent", "ESP32-JanSeva/2.0");
+  http.setTimeout(7000);
+
+  int code = http.GET();
+  Serial.printf("[SERVER TEST] HTTP Response: %d\n", code);
+  if (code == 200) {
+    String body = http.getString();
+    Serial.println("[SERVER TEST] SUCCESS! Server is online and responsive.");
+    Serial.println("[SERVER TEST] Response payload: " + body);
+    showScreenCard("SERVER ONLINE!", "Server connected!\nStatus: 200 OK\nReady to chat.", "[Server OK]");
+  } else {
+    Serial.printf("[SERVER TEST] FAILED with HTTP code: %d\n", code);
+    if (code == -1) {
+      Serial.println("[SERVER TEST] HTTP -1 = Connection Refused / Unreachable.");
+      Serial.println("  -> If using local IP, Windows Defender Firewall may block port 3000.");
+      Serial.println("  -> Or your Wi-Fi router has Client Isolation turned on.");
+      Serial.println("  -> EASY FIX: Type this in Serial Monitor:");
+      Serial.println("     server https://janseva-kiosk-live.loca.lt");
+    }
+    showScreenCard("SERVER FAILED", "Connection error: " + String(code) + "\nType in Serial:\nserver <url>", "[Conn Error]");
+  }
+  http.end();
+  delay(2000);
+  drawRobotFace(FACE_IDLE, cfg_location.substring(0, 9));
 }
 
 // ============================================================================

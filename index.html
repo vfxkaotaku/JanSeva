@@ -728,8 +728,12 @@ function formatAIContent(text) {
 // ──────────────────────────────────────────────────────────────
 function renderError(message) {
   let cleanMsg = message || 'Something went wrong. Please try again.';
-  if (typeof cleanMsg === 'string' && (cleanMsg.includes('<!DOCTYPE') || cleanMsg.includes('<html') || cleanMsg.includes('Page not found'))) {
-    cleanMsg = '⚠️ Backend service unavailable on static host. Standalone AI mode active. Please click Settings (⚙️) to configure your Google Gemini API Key.';
+  if (typeof cleanMsg === 'string') {
+    if (cleanMsg.includes('<!DOCTYPE') || cleanMsg.includes('<html') || cleanMsg.includes('Page not found')) {
+      cleanMsg = '⚠️ Backend service unavailable on static host. Standalone AI mode active. Please click Settings (⚙️) to configure your Google Gemini API Key.';
+    } else if (cleanMsg.toLowerCase().includes('quota exceeded') || cleanMsg.includes('429')) {
+      cleanMsg = '⚠️ Gemini free-tier quota briefly reached. Please wait a moment and send your question again, or click Settings (⚙️) to use another API key.';
+    }
   }
   const errDiv = document.createElement('div');
   errDiv.className = 'error-message';

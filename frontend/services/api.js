@@ -54,8 +54,13 @@ function isLiveBackend() {
 
 const DEFAULT_TIMEOUT_MS = 60000;
 
-// High performance Gemini models with automatic fallback
-const CANDIDATE_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
+// High performance Gemini models with generous quota and automatic fallback
+const CANDIDATE_MODELS = [
+  'gemini-3.5-flash-lite',
+  'gemini-flash-latest',
+  'gemini-2.5-flash-lite',
+  'gemini-3.6-flash'
+];
 
 const SYSTEM_PROMPT = `You are JANSEVA.AI — an official AI citizen-service assistant for the Government of India.
 CORE RULES:
@@ -112,8 +117,20 @@ async function directGeminiChat(message, language = 'auto', conversationId = nul
 
       const data = await response.json();
       if (!response.ok) {
-        if (response.status === 404 || data.error?.message?.includes('not found') || data.error?.message?.includes('no longer available')) {
-          lastError = new Error(data.error?.message || `Model ${modelName} not found`);
+        const isQuotaOrRateLimit =
+          response.status === 429 ||
+          data.error?.message?.toLowerCase().includes('quota') ||
+          data.error?.message?.toLowerCase().includes('rate limit');
+
+        const isNotFoundOrUnsupported =
+          response.status === 404 ||
+          response.status === 503 ||
+          data.error?.message?.includes('not found') ||
+          data.error?.message?.includes('no longer available');
+
+        if (isQuotaOrRateLimit || isNotFoundOrUnsupported) {
+          console.warn(`Model ${modelName} returned status ${response.status}. Trying next candidate model...`);
+          lastError = new Error(data.error?.message || `Model ${modelName} error (${response.status})`);
           continue;
         }
         throw new Error(data.error?.message || `Gemini error (${response.status})`);
@@ -129,7 +146,16 @@ async function directGeminiChat(message, language = 'auto', conversationId = nul
       };
     } catch (err) {
       lastError = err;
-      if (!err.message?.includes('not found') && !err.message?.includes('no longer available') && !err.message?.includes('404')) {
+      const isRetryable =
+        err.message?.toLowerCase().includes('quota') ||
+        err.message?.toLowerCase().includes('rate limit') ||
+        err.message?.includes('429') ||
+        err.message?.includes('404') ||
+        err.message?.includes('503') ||
+        err.message?.includes('not found') ||
+        err.message?.includes('no longer available');
+
+      if (!isRetryable) {
         throw err;
       }
     }
