@@ -6,15 +6,15 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 
   <!-- SEO & Identity -->
-  <title>JANSEVA.AI — AI-Powered Citizen Service Assistant</title>
-  <meta name="description" content="JANSEVA.AI is an AI-powered multilingual citizen-service assistant powered by Google Gemini. Get help with government schemes, welfare programs, and citizen services in Hindi, Marathi, English, and 8 more Indian languages." />
-  <meta name="keywords" content="janseva ai, government schemes, sarkari yojana, citizen service, hindi ai, multilingual chatbot, gemini ai india" />
+  <title>SAHAKAR SETU — Powered by JanSeva.AI</title>
+  <meta name="description" content="SAHAKAR SETU is an AI citizen-service platform powered by JanSeva.AI and Google Gemini. Access Indian government welfare schemes, services, and benefits in Hindi, Marathi, English, and 8 more Indian languages." />
+  <meta name="keywords" content="sahakar setu, janseva ai, government schemes, sarkari yojana, citizen service, hindi ai, multilingual chatbot, gemini ai india" />
   <meta name="author" content="VKO Studios" />
   <meta name="theme-color" content="#0B1F3A" />
 
   <!-- Open Graph -->
-  <meta property="og:title" content="JANSEVA.AI — AI Citizen Service Assistant" />
-  <meta property="og:description" content="Get help with government schemes in your language — Hindi, Marathi, English, and 8 more Indian languages." />
+  <meta property="og:title" content="SAHAKAR SETU — Powered by JanSeva.AI" />
+  <meta property="og:description" content="Access Indian government welfare schemes in your language — Hindi, Marathi, English, and 8 more Indian languages." />
   <meta property="og:type" content="website" />
 
   <!-- Favicon -->
@@ -24,7 +24,7 @@
   <!-- Fonts & CSS -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="styles/main.css?v=2.2" />
+  <link rel="stylesheet" href="styles/main.css?v=2.3" />
 </head>
 <body>
 
@@ -45,8 +45,8 @@
         <img src="assets/logo.png" alt="Sahakar Setu" />
       </div>
       <div class="sidebar-logo-text">
-        <h1>JANSEVA.AI</h1>
-        <span>सहकार सेतु • Sahakar Setu</span>
+        <h1>SAHAKAR SETU</h1>
+        <span>Powered by JanSeva.AI</span>
       </div>
     </div>
 
@@ -99,7 +99,7 @@
     <div class="sidebar-footer">
       <div class="sidebar-footer-badge">
         <div class="gemini-dot" aria-hidden="true"></div>
-        <span>Powered by Google Gemini</span>
+        <span>Sahakar Setu • Powered by JanSeva.AI</span>
       </div>
     </div>
   </aside>
@@ -118,10 +118,10 @@
           <img src="assets/logo.png" alt="Sahakar Setu" />
         </div>
         <div class="chat-header-info">
-          <h2>JANSEVA.AI Assistant</h2>
+          <h2>SAHAKAR SETU</h2>
           <div class="ai-status" id="ai-status" role="status" aria-live="polite">
             <div class="status-dot" id="status-dot"></div>
-            <span id="status-text">AI Online</span>
+            <span id="status-text">Powered by JanSeva.AI • Online</span>
           </div>
         </div>
       </div>
@@ -153,9 +153,10 @@
         <div class="welcome-logo" aria-label="Sahakar Setu Emblem">
           <img src="assets/logo.png" alt="Sahakar Setu" />
         </div>
-        <h2 class="welcome-title">नमस्ते! मैं JANSEVA.AI हूँ</h2>
+        <h2 class="welcome-title">नमस्ते! मैं SAHAKAR SETU हूँ</h2>
+        <p class="welcome-byline" style="font-size:13px; font-weight:700; color:var(--color-gov-blue); margin-bottom:8px; text-transform:uppercase; letter-spacing:1px;">Powered by JanSeva.AI</p>
         <p class="welcome-subtitle">
-          आपकी सरकारी योजनाओं और नागरिक सेवाओं के बारे में जानकारी देने के लिए यहाँ हूँ。<br/>
+          आपकी सरकारी योजनाओं और नागरिक सेवाओं के बारे में जानकारी देने के लिए यहाँ हूँ।<br/>
           <em>I help citizens access government services in their language.</em>
         </p>
 
@@ -876,7 +877,7 @@ function renderMessage(msg, animate = true) {
   sender.className = 'message-sender';
   sender.innerHTML = isUser
     ? `<div class="sender-icon">👤</div> <span>You</span>`
-    : `<div class="sender-icon"><img src="assets/logo.png" alt="Sahakar Setu" /></div> <span>JANSEVA.AI</span>`;
+    : `<div class="sender-icon"><img src="assets/logo.png" alt="Sahakar Setu" /></div> <span>SAHAKAR SETU <small style="font-size:10px; color:#64748b; font-weight:600;">(Powered by JanSeva.AI)</small></span>`;
   group.appendChild(sender);
 
   // Bubble
