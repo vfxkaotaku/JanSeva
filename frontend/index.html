@@ -17,13 +17,14 @@
   <meta property="og:description" content="Get help with government schemes in your language — Hindi, Marathi, English, and 8 more Indian languages." />
   <meta property="og:type" content="website" />
 
-  <!-- Favicon (emoji fallback) -->
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🇮🇳</text></svg>" />
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="assets/logo.png" />
+  <link rel="apple-touch-icon" href="assets/logo.png" />
 
   <!-- Fonts & CSS -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="styles/main.css?v=2.1" />
+  <link rel="stylesheet" href="styles/main.css?v=2.2" />
 </head>
 <body>
 
@@ -40,10 +41,12 @@
 
     <!-- Logo -->
     <div class="sidebar-logo">
-      <div class="sidebar-logo-icon" aria-hidden="true">🇮🇳</div>
+      <div class="sidebar-logo-icon" aria-label="Sahakar Setu Logo">
+        <img src="assets/logo.png" alt="Sahakar Setu" />
+      </div>
       <div class="sidebar-logo-text">
         <h1>JANSEVA.AI</h1>
-        <span>AI-Powered Citizen Service Assistant</span>
+        <span>सहकार सेतु • Sahakar Setu</span>
       </div>
     </div>
 
@@ -111,7 +114,9 @@
     <header class="chat-header" role="banner">
       <div class="chat-header-left">
         <button class="header-menu-btn" id="sidebar-toggle" aria-label="Toggle sidebar" aria-expanded="false">☰</button>
-        <div class="chat-header-avatar" aria-hidden="true">🤖</div>
+        <div class="chat-header-avatar" aria-label="Sahakar Setu Assistant">
+          <img src="assets/logo.png" alt="Sahakar Setu" />
+        </div>
         <div class="chat-header-info">
           <h2>JANSEVA.AI Assistant</h2>
           <div class="ai-status" id="ai-status" role="status" aria-live="polite">
@@ -145,7 +150,9 @@
 
       <!-- Welcome Screen (shown when no messages) -->
       <div id="welcome-screen">
-        <div class="welcome-logo" aria-hidden="true">🤖</div>
+        <div class="welcome-logo" aria-label="Sahakar Setu Emblem">
+          <img src="assets/logo.png" alt="Sahakar Setu" />
+        </div>
         <h2 class="welcome-title">नमस्ते! मैं JANSEVA.AI हूँ</h2>
         <p class="welcome-subtitle">
           आपकी सरकारी योजनाओं और नागरिक सेवाओं के बारे में जानकारी देने के लिए यहाँ हूँ。<br/>
@@ -869,7 +876,7 @@ function renderMessage(msg, animate = true) {
   sender.className = 'message-sender';
   sender.innerHTML = isUser
     ? `<div class="sender-icon">👤</div> <span>You</span>`
-    : `<div class="sender-icon">🤖</div> <span>JANSEVA.AI</span>`;
+    : `<div class="sender-icon"><img src="assets/logo.png" alt="Sahakar Setu" /></div> <span>JANSEVA.AI</span>`;
   group.appendChild(sender);
 
   // Bubble
