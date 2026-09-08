@@ -300,12 +300,12 @@ body {
   width: 100%;
 }
 
-.gemini-dot {
+.status-badge-dot, .gemini-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #4285F4;
-  box-shadow: 0 0 8px #4285F4;
+  background: #1565C0;
+  box-shadow: 0 0 8px #1565C0;
   animation: pulse 2s ease-in-out infinite;
 }
 

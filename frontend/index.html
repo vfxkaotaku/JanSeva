@@ -7,8 +7,8 @@
 
   <!-- SEO & Identity -->
   <title>SAHAKAR SETU — Powered by JanSeva.AI</title>
-  <meta name="description" content="SAHAKAR SETU is an AI citizen-service platform powered by JanSeva.AI and Google Gemini. Access Indian government welfare schemes, services, and benefits in Hindi, Marathi, English, and 8 more Indian languages." />
-  <meta name="keywords" content="sahakar setu, janseva ai, government schemes, sarkari yojana, citizen service, hindi ai, multilingual chatbot, gemini ai india" />
+  <meta name="description" content="SAHAKAR SETU is an AI citizen-service platform powered by JanSeva.AI. Access Indian government welfare schemes, services, and benefits in Hindi, Marathi, English, and 8 more Indian languages." />
+  <meta name="keywords" content="sahakar setu, janseva ai, government schemes, sarkari yojana, citizen service, hindi ai, multilingual chatbot" />
   <meta name="author" content="VKO Studios" />
   <meta name="theme-color" content="#0B1F3A" />
 
@@ -24,7 +24,7 @@
   <!-- Fonts & CSS -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="styles/main.css?v=2.3" />
+  <link rel="stylesheet" href="styles/main.css?v=2.4" />
 </head>
 <body>
 
@@ -98,7 +98,7 @@
     <!-- Footer -->
     <div class="sidebar-footer">
       <div class="sidebar-footer-badge">
-        <div class="gemini-dot" aria-hidden="true"></div>
+        <div class="status-badge-dot" aria-hidden="true"></div>
         <span>Sahakar Setu • Powered by JanSeva.AI</span>
       </div>
     </div>
@@ -969,9 +969,9 @@ function renderError(message) {
   let cleanMsg = message || 'Something went wrong. Please try again.';
   if (typeof cleanMsg === 'string') {
     if (cleanMsg.includes('<!DOCTYPE') || cleanMsg.includes('<html') || cleanMsg.includes('Page not found')) {
-      cleanMsg = '⚠️ Backend service unavailable on static host. Standalone AI mode active. Please click Settings (⚙️) to configure your Google Gemini API Key.';
+      cleanMsg = '⚠️ Backend service unavailable on static host. Standalone AI mode active. Please click Settings (⚙️) to configure your AI API Key.';
     } else if (cleanMsg.toLowerCase().includes('quota exceeded') || cleanMsg.includes('429')) {
-      cleanMsg = '⚠️ Gemini free-tier quota briefly reached. Please wait a moment and send your question again, or click Settings (⚙️) to use another API key.';
+      cleanMsg = '⚠️ AI service quota briefly reached. Please wait a moment and send your question again, or click Settings (⚙️) to use another API key.';
     }
   }
   const errDiv = document.createElement('div');
@@ -1873,18 +1873,18 @@ $('nav-clear').addEventListener('click', clearCurrentConversation);
 // Sidebar toggle (mobile)
 $('sidebar-toggle').addEventListener('click', toggleSidebar);
 
-// Settings: Configure Gemini API Key
+// Settings: Configure AI API Key
 $('nav-settings').addEventListener('click', () => {
   const defKey = atob('QVEuQWI4Uk42S2lPcnREWTg4YjZ2X3hZdTVNZ1NnUlhCZ0pVVkxLd1dfT0UtemNlam5xdHc=');
   const current = localStorage.getItem('janseva_gemini_api_key') || defKey;
-  const newKey = prompt('🔑 Configure Google Gemini API Key:\n\nCurrent Key: ' + current + '\n\nEnter new key or click OK to keep:', current);
+  const newKey = prompt('🔑 Configure AI API Key:\n\nCurrent Key: ' + current + '\n\nEnter new key or click OK to keep:', current);
   if (newKey !== null) {
     if (newKey.trim()) {
       localStorage.setItem('janseva_gemini_api_key', newKey.trim());
-      showToast('✅ Google Gemini API Key updated!', 'success');
+      showToast('✅ AI API Key updated!', 'success');
     } else {
       localStorage.setItem('janseva_gemini_api_key', defKey);
-      showToast('Restored default Google Gemini API key.', 'info');
+      showToast('Restored default AI API key.', 'info');
     }
   }
 });
