@@ -1,13 +1,13 @@
-# JANSEVA.AI 🇮🇳
-### AI-Powered Multilingual Citizen Service Assistant
+# SAHAKAR SETU 🇮🇳
+### Powered by JanSeva.AI — AI Citizen Service Assistant
 
-JANSEVA.AI is a professional government citizen-service platform powered by **Google Gemini**. Citizens can ask questions about government schemes and services in their native language — Hindi, Marathi, English, Gujarati, Bengali, Tamil, Telugu, Kannada, Malayalam, Punjabi, or Urdu — and get natural, helpful responses.
+**SAHAKAR SETU** (powered by **JanSeva.AI**) is an official AI citizen-service platform. Citizens can ask questions about government schemes and services in their native language — Hindi, Marathi, English, Gujarati, Bengali, Tamil, Telugu, Kannada, Malayalam, Punjabi, or Urdu — and get natural, helpful responses.
 
 ---
 
 ## ✨ Features (Step 1)
 
-- 🤖 **Google Gemini AI** — Powered by `gemini-1.5-flash` (configurable)
+- 🤖 **Advanced Citizen AI Intelligence** — Fast, accurate government scheme advisory
 - 🌐 **Automatic Language Detection** — Detects Hindi, Marathi, Gujarati, Bengali, Tamil, Telugu, Kannada, Malayalam, Punjabi, Urdu, English from Unicode script
 - 💬 **Conversation Memory** — Full multi-turn context per session
 - 🎨 **Premium Government UI** — Navy/Saffron/Green palette, glassmorphism, animations
