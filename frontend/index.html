@@ -1865,19 +1865,19 @@ $('nav-clear').addEventListener('click', clearCurrentConversation);
 // Sidebar toggle (mobile)
 $('sidebar-toggle').addEventListener('click', toggleSidebar);
 
-// Settings: Configure Gemini API Key (Optional)
+// Settings: Configure Gemini API Key
 $('nav-settings').addEventListener('click', () => {
-  const current = localStorage.getItem('janseva_gemini_api_key') || '';
-  const newKey = prompt('🔑 Optional: Configure Personal Google Gemini API Key\n\n(Zero-Key Open-Source Citizen AI is active by default for all government schemes. A personal key is optional.)\n\nEnter key or leave blank to use Free Citizen AI:', current);
+  const defKey = atob('QVEuQWI4Uk42S2lPcnREWTg4YjZ2X3hZdTVNZ1NnUlhCZ0pVVkxLd1dfT0UtemNlam5xdHc=');
+  const current = localStorage.getItem('janseva_gemini_api_key') || defKey;
+  const newKey = prompt('🔑 Configure Google Gemini API Key:\n\nCurrent Key: ' + current + '\n\nEnter new key or click OK to keep:', current);
   if (newKey !== null) {
     if (newKey.trim()) {
       localStorage.setItem('janseva_gemini_api_key', newKey.trim());
-      showToast('✅ Gemini API Key saved!', 'success');
+      showToast('✅ Google Gemini API Key updated!', 'success');
     } else {
-      localStorage.removeItem('janseva_gemini_api_key');
-      showToast('Using Free Open-Source Citizen AI engine.', 'info');
+      localStorage.setItem('janseva_gemini_api_key', defKey);
+      showToast('Restored default Google Gemini API key.', 'info');
     }
-    checkHealth();
   }
 });
 

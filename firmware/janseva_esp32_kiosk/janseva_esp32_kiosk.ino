@@ -126,7 +126,7 @@ size_t   recBytes = 0;
 Preferences prefs;
 String cfg_ssid     = "";
 String cfg_pass     = "";
-String cfg_server   = "https://janseva-kiosk-live.loca.lt";
+String cfg_server   = "https://afraid-bird-94.loca.lt";
 String cfg_devid    = "JANSEVA-ESP32";
 String cfg_location = "Main Counter";
 String cfg_lang     = "hi";
@@ -277,7 +277,7 @@ void setup() {
   prefs.begin("janseva", false);
   cfg_ssid     = prefs.getString("ssid",     "");
   cfg_pass     = prefs.getString("pass",     "");
-  cfg_server   = prefs.getString("server",   "https://janseva-kiosk-live.loca.lt");
+  cfg_server   = prefs.getString("server",   "https://afraid-bird-94.loca.lt");
   cfg_devid    = prefs.getString("devid",    "JANSEVA-ESP32");
   cfg_location = prefs.getString("location", "Main Counter");
   cfg_lang     = prefs.getString("deflang",  "hi");

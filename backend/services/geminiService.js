@@ -64,51 +64,85 @@ function initialize() {
     throw new Error('GEMINI_API_KEY is invalid or too short in .env file');
   }
 
-  const modelName = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
-
+  const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
   genAI = new GoogleGenerativeAI(apiKey);
+
+  const candidateModels = [
+    primaryModel,
+    'gemini-3.5-flash-lite',
+    'gemini-flash-latest',
+    'gemini-3.1-flash-lite',
+    'gemini-3.6-flash'
+  ];
+
+  // Remove duplicates
+  const uniqueModels = [...new Set(candidateModels)];
+
   model = genAI.getGenerativeModel({
-    model: modelName,
+    model: primaryModel,
     systemInstruction: JANSEVA_SYSTEM_PROMPT,
     safetySettings: SAFETY_SETTINGS,
     generationConfig: GENERATION_CONFIG,
   });
 
-  console.log(`✅ Gemini initialized with model: ${modelName}`);
+  console.log(`✅ Gemini initialized with primary model: ${primaryModel}`);
 }
 
 /**
- * Send a message to Gemini with conversation history.
+ * Send a message to Gemini with conversation history and automatic model fallback.
  * @param {string} userMessage — The user's current message
  * @param {Array}  history     — Previous messages in Gemini SDK format
  * @param {string} langInstruction — Language instruction to prepend
  * @returns {string} AI response text
  */
 async function sendMessage(userMessage, history = [], langInstruction = '') {
-  if (!model) {
+  if (!genAI) {
     throw new Error('Gemini service not initialized. Call initialize() first.');
   }
 
-  // Start a chat session with the existing history
-  const chat = model.startChat({
-    history,
-    safetySettings: SAFETY_SETTINGS,
-    generationConfig: GENERATION_CONFIG,
-  });
+  const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+  const candidateModels = [
+    primaryModel,
+    'gemini-3.5-flash-lite',
+    'gemini-flash-latest',
+    'gemini-3.1-flash-lite',
+    'gemini-3.6-flash'
+  ];
+  const uniqueModels = [...new Set(candidateModels)];
 
-  // Prepend language instruction to the message if specified
   const fullMessage = langInstruction
     ? `[Language Instruction: ${langInstruction}]\n\n${userMessage}`
     : userMessage;
 
-  const result = await chat.sendMessage(fullMessage);
-  const response = result.response;
+  let lastError = null;
 
-  if (!response) {
-    throw new Error('Empty response from Gemini API');
+  for (const mName of uniqueModels) {
+    try {
+      const activeModel = genAI.getGenerativeModel({
+        model: mName,
+        systemInstruction: JANSEVA_SYSTEM_PROMPT,
+        safetySettings: SAFETY_SETTINGS,
+        generationConfig: GENERATION_CONFIG,
+      });
+
+      const chat = activeModel.startChat({
+        history,
+        safetySettings: SAFETY_SETTINGS,
+        generationConfig: GENERATION_CONFIG,
+      });
+
+      const result = await chat.sendMessage(fullMessage);
+      const response = result.response;
+      if (response && response.text) {
+        return response.text();
+      }
+    } catch (err) {
+      console.warn(`[Gemini] Model ${mName} attempt notice:`, err.message);
+      lastError = err;
+    }
   }
 
-  return response.text();
+  throw lastError || new Error('All Gemini candidate models exhausted');
 }
 
 /**
